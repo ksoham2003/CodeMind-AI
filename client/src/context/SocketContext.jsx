@@ -1,14 +1,21 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { useAuth } from './AuthContext';
 
 const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
   const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     const token = localStorage.getItem('token');
+    
+    if (!token) {
+      setConnected(false);
+      return;
+    }
     // If VITE_API_URL is not set, we default to empty string so it connects to the same host/port serving the app
     const socket = io(import.meta.env.VITE_API_URL || '', {
       transports: ['websocket', 'polling'],
@@ -23,6 +30,11 @@ export const SocketProvider = ({ children }) => {
       setConnected(true);
     });
 
+    socket.on('connect_error', (err) => {
+      console.warn('Socket connection error:', err.message);
+      setConnected(false);
+    });
+
     socket.on('disconnect', () => {
       setConnected(false);
     });
@@ -32,7 +44,7 @@ export const SocketProvider = ({ children }) => {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [user]);
 
   const joinProject = (projectId) => {
     if (socketRef.current?.connected) {

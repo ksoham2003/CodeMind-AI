@@ -1,17 +1,29 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, GitBranch, CheckCircle } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import IndexingProgress from '../components/IndexingProgress';
-import { projectService } from '../services';
+import { projectService, indexService } from '../services';
 import './IndexingPage.css';
 
 export default function IndexingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { joinProject, leaveProject, onIndexingProgress } = useSocket();
+  const { joinProject, leaveProject, onIndexingProgress, connected } = useSocket();
   const progressRef = useRef(null);
   const projectRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+  const receivedSocketEvent = useRef(false);
+
+  // Map DB status → stage key used by IndexingProgress
+  const statusToStage = (status) => ({
+    cloning:   'cloning',
+    parsing:   'parsing',
+    embedding: 'embedding',
+    indexing:  'indexing',
+    ready:     'done',
+    error:     'error',
+  }[status] || '');
 
   useEffect(() => {
     let unsubscribe;
@@ -27,21 +39,54 @@ export default function IndexingPage() {
           return;
         }
 
-        // Join socket room
+        // Join socket room & listen for live progress events
         joinProject(id);
 
-        // Subscribe to events
         unsubscribe = onIndexingProgress((event) => {
-          // Forward event to IndexingProgress component
+          receivedSocketEvent.current = true;
           if (progressRef.current?.handleEvent) {
             progressRef.current.handleEvent(event);
           }
-
-          // Navigate on completion
           if (event.stage === 'done') {
+            clearInterval(pollIntervalRef.current);
             setTimeout(() => navigate(`/project/${id}`, { replace: true }), 2500);
           }
         });
+
+        // Polling fallback — kicks in immediately and continues until
+        // socket events take over or indexing completes
+        const poll = async () => {
+          try {
+            const { project: latest } = await projectService.getById(id);
+            const stage = statusToStage(latest.status);
+
+            if (!receivedSocketEvent.current && stage && stage !== 'done') {
+              // Synthesise a progress event from the DB status
+              progressRef.current?.handleEvent({
+                stage,
+                message: `${latest.status}…`,
+                percent: undefined,
+              });
+            }
+
+            if (latest.status === 'ready') {
+              clearInterval(pollIntervalRef.current);
+              progressRef.current?.handleEvent({ stage: 'done', message: 'Indexing complete!' });
+              setTimeout(() => navigate(`/project/${id}`, { replace: true }), 2000);
+            }
+            if (latest.status === 'error') {
+              clearInterval(pollIntervalRef.current);
+              progressRef.current?.handleEvent({ stage: 'error', message: latest.errorMessage || 'Indexing failed' });
+            }
+          } catch (_) {
+            // ignore poll errors
+          }
+        };
+
+        // Poll every 4 seconds as fallback
+        poll();
+        pollIntervalRef.current = setInterval(poll, 4000);
+
       } catch (err) {
         console.error('Failed to init indexing page:', err);
       }
@@ -52,6 +97,7 @@ export default function IndexingPage() {
     return () => {
       leaveProject(id);
       unsubscribe?.();
+      clearInterval(pollIntervalRef.current);
     };
   }, [id, joinProject, leaveProject, onIndexingProgress, navigate]);
 

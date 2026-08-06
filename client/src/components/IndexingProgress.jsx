@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import { CheckCircle, Circle, Loader2, XCircle, GitBranch, FileSearch, Braces, Zap, Database, Sparkles } from 'lucide-react';
 import './IndexingProgress.css';
 
@@ -11,7 +11,7 @@ const STAGES = [
   { key: 'indexing',  icon: Database,   label: 'Storing in Pinecone',    desc: 'Uploading vectors to the database' },
 ];
 
-export default function IndexingProgress({ projectId, onComplete }) {
+const IndexingProgress = forwardRef(function IndexingProgress({ projectId, onComplete }, ref) {
   const [events, setEvents] = useState([]);
   const [currentStage, setCurrentStage] = useState('');
   const [currentMessage, setCurrentMessage] = useState('Starting...');
@@ -50,8 +50,8 @@ export default function IndexingProgress({ projectId, onComplete }) {
     }
   };
 
-  // Expose event handler for parent
-  IndexingProgress.handleEvent = handleEvent;
+  // Expose handleEvent via ref
+  useImperativeHandle(ref, () => ({ handleEvent }));
 
   const getStageStatus = (stageKey) => {
     const stageOrder = STAGES.map((s) => s.key);
@@ -145,4 +145,6 @@ export default function IndexingProgress({ projectId, onComplete }) {
       </div>
     </div>
   );
-}
+});
+
+export default IndexingProgress;
