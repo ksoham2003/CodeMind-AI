@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { Brain } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function SignupPage() {
@@ -28,46 +29,61 @@ export default function SignupPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <h2>Join CodeMind</h2>
-        {error && <div className="alert alert-error">{error}</div>}
+        <div className="auth-logo">
+          <div className="auth-logo-icon">
+            <Brain size={22} strokeWidth={1.75} />
+          </div>
+        </div>
+        <h2>Create account</h2>
+        <p className="auth-card-subtitle">Start exploring your codebases with AI</p>
+        {error && <div className="alert-error">{error}</div>}
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
-            <label>Full Name</label>
+            <label htmlFor="signup-name">Name</label>
             <input
+              id="signup-name"
+              className="input"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Enter your name"
+              placeholder="Your full name"
               required
+              autoComplete="name"
             />
           </div>
           <div className="form-group">
-            <label>Email Address</label>
+            <label htmlFor="signup-email">Email</label>
             <input
+              id="signup-email"
+              className="input"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
+              placeholder="you@example.com"
               required
+              autoComplete="email"
             />
           </div>
           <div className="form-group">
-            <label>Password</label>
+            <label htmlFor="signup-password">Password</label>
             <input
+              id="signup-password"
+              className="input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Create a password"
+              placeholder="At least 6 characters"
               required
               minLength={6}
+              autoComplete="new-password"
             />
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            {loading ? 'Creating account...' : 'Sign up'}
+            {loading ? 'Creating account…' : 'Create account'}
           </button>
         </form>
         <p className="auth-footer">
-          Already have an account? <Link to="/login">Login</Link>
+          Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </div>
     </div>

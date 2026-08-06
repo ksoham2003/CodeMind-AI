@@ -1,68 +1,262 @@
-/* ── Auth Pages ───────────────────────────────────────────────────────────── */
+/* ============================================================
+   Auth Pages — Apple-design language
+   Materials, restraint, tight typography, spring motion
+   ============================================================ */
 
+/* ── Fix browser autofill overriding input background ── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 40px #2c2c2e inset !important;
+  box-shadow: 0 0 0 40px #2c2c2e inset !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.92) !important;
+  caret-color: rgba(255, 255, 255, 0.92);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* ── Page scaffold ───────────────────────────────────── */
 .auth-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 80px);
-  padding: var(--space-4);
+  min-height: calc(100vh - var(--navbar-h));
+  padding: var(--space-6) var(--space-4);
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 30%, rgba(10, 132, 255, 0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 80% 70%, rgba(191, 90, 242, 0.06) 0%, transparent 70%),
+    var(--c-bg);
 }
 
+/* ── Card — translucent material, Apple sheet style ─── */
 .auth-card {
-  background-color: var(--c-bg-elevated);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-xl);
-  padding: var(--space-8);
+  background: rgba(28, 28, 30, 0.80);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--r-2xl);
+  padding: var(--space-8) var(--space-8) var(--space-6);
   width: 100%;
-  max-width: 420px;
-  box-shadow: var(--shadow-lg);
+  max-width: 400px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.60),
+    0 4px 16px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* Materialize on enter — blur + scale together (§12: not just opacity) */
+  animation: authCardIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes authCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* ── Logo mark ───────────────────────────────────────── */
+.auth-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-5);
+}
+
+.auth-logo-icon {
+  width: 46px;
+  height: 46px;
+  background: linear-gradient(135deg, var(--c-accent) 0%, var(--c-purple) 100%);
+  border-radius: var(--r-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow:
+    0 6px 20px rgba(10, 132, 255, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* ── Heading — negative tracking at large size (§15) ── */
 .auth-card h2 {
   font-size: var(--text-2xl);
-  font-weight: var(--fw-semibold);
-  margin-bottom: var(--space-6);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
   text-align: center;
-  letter-spacing: var(--ls-tight);
+  color: var(--c-text-primary);
+  margin-bottom: var(--space-2);
 }
 
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.auth-footer {
-  margin-top: var(--space-6);
+.auth-card-subtitle {
   text-align: center;
   font-size: var(--text-sm);
   color: var(--c-text-secondary);
+  margin-bottom: var(--space-6);
+  letter-spacing: 0.01em;
+}
+
+/* ── Form ────────────────────────────────────────────── */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.form-group label {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-secondary);
+  letter-spacing: 0.01em;
+}
+
+/* Dark inputs — override .input for auth context */
+.auth-form .input {
+  background: rgba(44, 44, 46, 0.90);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--r-lg);
+  color: var(--c-text-primary);
+  font-size: var(--text-base);
+  padding: 13px var(--space-4);
+  height: auto;
+  transition:
+    border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow   150ms cubic-bezier(0.22, 1, 0.36, 1),
+    background   150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-form .input::placeholder {
+  color: var(--c-text-tertiary);
+}
+
+/* Instant response on interaction — Apple §1 */
+.auth-form .input:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.auth-form .input:focus {
+  background: rgba(54, 54, 58, 0.95);
+  border-color: var(--c-accent);
+  box-shadow:
+    0 0 0 3px rgba(10, 132, 255, 0.20),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  outline: none;
+}
+
+/* ── Submit button ───────────────────────────────────── */
+.btn-block {
+  width: 100%;
+  height: 50px;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
+  border-radius: var(--r-full);
+  margin-top: var(--space-2);
+  letter-spacing: -0.01em;
+  transition:
+    transform 100ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 150ms ease-out;
+}
+
+/* Press response on pointer-down (not just :active release) */
+.btn-block:active {
+  transform: scale(0.97);
+}
+
+/* ── Footer ──────────────────────────────────────────── */
+.auth-footer {
+  margin-top: var(--space-5);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--c-text-secondary);
+  letter-spacing: 0.01em;
 }
 
 .auth-footer a {
   color: var(--c-accent);
-  text-decoration: none;
   font-weight: var(--fw-medium);
-  transition: var(--trans-fast);
+  text-decoration: none;
+  transition: color 100ms ease-out;
 }
 
 .auth-footer a:hover {
   color: var(--c-accent-hover);
-  text-decoration: underline;
 }
 
-.btn-block {
-  width: 100%;
-  margin-top: var(--space-2);
-}
-
+/* ── Error alert — spatially enters from above ────────── */
 .alert-error {
-  background-color: var(--c-status-error);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  background: rgba(255, 69, 58, 0.10);
   color: #ff8a84;
-  border: 1px solid rgba(255, 69, 58, 0.3);
+  border: 1px solid rgba(255, 69, 58, 0.22);
+  border-left: 3px solid var(--c-error);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--r-md);
   font-size: var(--text-sm);
-  margin-bottom: var(--space-4);
-  text-align: center;
+  line-height: 1.45;
+  margin-bottom: var(--space-3);
+  animation: alertIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+@keyframes alertIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Navbar additions ────────────────────────────────── */
+.navbar-user {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-secondary);
+  letter-spacing: 0.01em;
+  padding: 0 var(--space-1);
+}
+
+/* ── Loading screen ──────────────────────────────────── */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-size: var(--text-sm);
+  color: var(--c-text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+/* ── Reduced motion (§14) ────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .auth-card,
+  .alert-error {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* ── Reduced transparency (§14) ─────────────────────── */
+@media (prefers-reduced-transparency: reduce) {
+  .auth-card {
+    background: var(--c-bg-elevated);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--c-border-mid);
+  }
+  .auth-form .input {
+    background: var(--c-bg-raised);
+  }
+}
+
