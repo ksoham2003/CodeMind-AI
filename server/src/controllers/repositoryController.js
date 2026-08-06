@@ -25,7 +25,7 @@ const addGithubRepository = async (req, res) => {
   const repoId = `${parsed.owner}-${parsed.repo}-${uuidv4().slice(0, 8)}`;
 
   // Check for existing project with same URL (to avoid duplicate indexing)
-  const existing = await Project.findOne({ githubUrl: url, status: 'ready' });
+  const existing = await Project.findOne({ githubUrl: url, owner: req.user._id, status: 'ready' });
   if (existing) {
     return res.status(200).json({
       success: true,
@@ -36,6 +36,7 @@ const addGithubRepository = async (req, res) => {
   }
 
   const project = await Project.create({
+    owner: req.user._id,
     name: repoName,
     githubUrl: url,
     repoId,
@@ -53,7 +54,7 @@ const addGithubRepository = async (req, res) => {
  * GET /api/repository/:id
  */
 const getRepository = async (req, res) => {
-  const project = await Project.findById(req.params.id);
+  const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
   if (!project) {
     return res.status(404).json({ success: false, message: 'Project not found' });
   }

@@ -17,6 +17,8 @@ const repositoryRoutes = require('./routes/repository');
 const indexRoutes = require('./routes/index');
 const chatRoutes = require('./routes/chat');
 const projectRoutes = require('./routes/projects');
+const authRoutes = require('./routes/auth');
+const jwt = require('jsonwebtoken');
 
 // Controllers that need Socket.io injected
 const { setIo } = require('./controllers/indexController');
@@ -59,6 +61,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/repository', repositoryRoutes);
 app.use('/api/index', indexRoutes);
 app.use('/api/chat', chatRoutes);
@@ -87,8 +90,22 @@ if (process.env.NODE_ENV === 'production') {
 app.use(errorHandler);
 
 // ── Socket.io ─────────────────────────────────────────────────────────────────
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log(`🔌 Socket connected: ${socket.id}`);
+  console.log(`🔌 Socket connected: ${socket.id} (User: ${socket.user.id})`);
 
   // Client joins a room for their project to receive progress updates
   socket.on('join:project', (projectId) => {

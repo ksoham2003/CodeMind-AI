@@ -7,7 +7,7 @@ const { deleteRepository } = require('../services/githubService');
  * GET /api/projects
  */
 const getAllProjects = async (req, res) => {
-  const projects = await Project.find()
+  const projects = await Project.find({ owner: req.user._id })
     .sort({ createdAt: -1 })
     .select('-fileTree -__v');
 
@@ -18,7 +18,7 @@ const getAllProjects = async (req, res) => {
  * GET /api/projects/:id
  */
 const getProject = async (req, res) => {
-  const project = await Project.findById(req.params.id);
+  const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
   if (!project) {
     return res.status(404).json({ success: false, message: 'Project not found' });
   }
@@ -30,7 +30,7 @@ const getProject = async (req, res) => {
  * Removes project, all chats, all Pinecone vectors, and any temp files
  */
 const deleteProject = async (req, res) => {
-  const project = await Project.findById(req.params.id);
+  const project = await Project.findOne({ _id: req.params.id, owner: req.user._id });
   if (!project) {
     return res.status(404).json({ success: false, message: 'Project not found' });
   }
@@ -38,7 +38,7 @@ const deleteProject = async (req, res) => {
   // Delete in parallel
   await Promise.allSettled([
     deleteRepositoryVectors(project.repoId),
-    Chat.deleteMany({ projectId: project._id }),
+    Chat.deleteMany({ projectId: project._id, owner: req.user._id }),
     deleteRepository(project.repoId),
   ]);
 

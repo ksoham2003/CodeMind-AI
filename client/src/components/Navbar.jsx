@@ -1,11 +1,14 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Brain, Github } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
+import { useAuth } from '../context/AuthContext';
+import { LogOut } from 'lucide-react';
 import './Navbar.css';
 
 export default function Navbar() {
   const location = useLocation();
   const { connected } = useSocket();
+  const { user, logout } = useAuth();
 
   return (
     <nav className="navbar glass" role="navigation" aria-label="Main navigation">
@@ -32,6 +35,15 @@ export default function Navbar() {
             <span className="conn-dot" />
             <span className="conn-label">{connected ? 'Live' : 'Offline'}</span>
           </div>
+
+          {user && (
+            <>
+              <span className="navbar-user">Hi, {user.name}</span>
+              <button onClick={logout} className="btn btn-ghost btn-icon" title="Logout">
+                <LogOut size={16} />
+              </button>
+            </>
+          )}
 
           {/* GitHub link */}
           <a

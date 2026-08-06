@@ -1,11 +1,22 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ProjectProvider } from './context/ProjectContext';
 import { SocketProvider } from './context/SocketContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
 import ProjectPage from './pages/ProjectPage';
 import IndexingPage from './pages/IndexingPage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import './App.css';
+import './Auth.css';
+
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="loading-screen">Loading...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
 
 function NotFoundPage() {
   return (
@@ -19,19 +30,35 @@ function NotFoundPage() {
 export default function App() {
   return (
     <Router>
-      <SocketProvider>
-        <ProjectProvider>
-          <div className="app-container">
-            <Navbar />
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/project/:id" element={<ProjectPage />} />
-              <Route path="/project/:id/indexing" element={<IndexingPage />} />
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
-          </div>
-        </ProjectProvider>
-      </SocketProvider>
+      <AuthProvider>
+        <SocketProvider>
+          <ProjectProvider>
+            <div className="app-container">
+              <Navbar />
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+                <Route path="/" element={
+                  <ProtectedRoute>
+                    <HomePage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/project/:id" element={
+                  <ProtectedRoute>
+                    <ProjectPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/project/:id/indexing" element={
+                  <ProtectedRoute>
+                    <IndexingPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </div>
+          </ProjectProvider>
+        </SocketProvider>
+      </AuthProvider>
     </Router>
   );
 }

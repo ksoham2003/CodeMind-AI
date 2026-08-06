@@ -16,7 +16,7 @@ const sendMessage = async (req, res) => {
   }
 
   try {
-    const project = await Project.findById(projectId);
+    const project = await Project.findOne({ _id: projectId, owner: req.user._id });
     if (!project) {
       return res.status(404).json({ success: false, message: 'Project not found' });
     }
@@ -61,6 +61,7 @@ const sendMessage = async (req, res) => {
     // Step 5: Save to MongoDB
     const chat = await Chat.create({
       projectId,
+      owner: req.user._id,
       question,
       answer,
       sources,
@@ -103,13 +104,18 @@ const getChatHistory = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const skip = (page - 1) * limit;
 
+  const project = await Project.findOne({ _id: projectId, owner: req.user._id });
+  if (!project) {
+    return res.status(404).json({ success: false, message: 'Project not found' });
+  }
+
   const [chats, total] = await Promise.all([
-    Chat.find({ projectId })
+    Chat.find({ projectId, owner: req.user._id })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .select('-__v'),
-    Chat.countDocuments({ projectId }),
+    Chat.countDocuments({ projectId, owner: req.user._id }),
   ]);
 
   res.json({
