@@ -1,0 +1,12 @@
+{
+  "name": "codemind-ai",
+  "version": "1.0.0",
+  "description": "CodeMind AI - RAG-based code repository analysis assistant",
+  "main": "server/src/index.js",
+  "scripts": {
+    "install-all": "npm install --prefix client && npm install --prefix server",
+    "build-client": "npm run build --prefix client",
+    "build": "npm run install-all && npm run build-client",
+    "start": "node server/src/index.js"
+  }
+}
