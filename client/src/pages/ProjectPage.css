@@ -1,0 +1,231 @@
+.project-page {
+  display: flex;
+  height: 100vh;
+  padding-top: var(--navbar-h);
+  overflow: hidden;
+}
+
+.project-page-center {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: var(--navbar-h);
+}
+
+/* ── Sidebar ── */
+.project-sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-bg-elevated); /* overrides glass-raised for solid feel if needed */
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
+}
+
+.back-btn {
+  flex-shrink: 0;
+  color: var(--c-text-secondary);
+}
+
+.sidebar-repo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sidebar-repo-name {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-primary);
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--c-border);
+}
+
+.sidebar-content {
+  flex: 1;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sidebar-stats {
+  background: var(--c-bg-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+}
+
+.stat-label {
+  color: var(--c-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+}
+
+.stat-value {
+  color: var(--c-text-primary);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+}
+
+.sidebar-gh-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  color: var(--c-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  transition: all var(--duration-fast);
+}
+
+.sidebar-gh-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--c-border-mid);
+}
+
+/* ── Main Chat ── */
+.project-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+}
+
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+  scroll-behavior: smooth;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.chat-input-container {
+  padding: var(--space-4);
+  background: var(--c-bg);
+  position: relative;
+  z-index: 10;
+}
+
+/* Typing indicator */
+.chat-loading {
+  display: flex;
+  gap: 4px;
+  padding: var(--space-4) var(--space-5);
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
+  border-radius: 4px 18px 18px 18px;
+  align-self: flex-start;
+  width: fit-content;
+}
+
+.chat-typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-text-secondary);
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+@keyframes typing {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Sources Panel ── */
+.project-sources {
+  border-left: 1px solid var(--c-border);
+  background: var(--c-bg-elevated);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: width var(--duration-spring) var(--ease-spring);
+}
+
+.sources-open {
+  width: 400px;
+}
+
+.sources-closed {
+  width: 48px;
+  cursor: pointer;
+}
+
+.sources-toggle-btn {
+  position: absolute;
+  top: var(--space-4);
+  left: 12px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  z-index: 20;
+}
+
+.sources-toggle-btn:hover {
+  color: var(--c-text-primary);
+}
+
+.sources-content {
+  flex: 1;
+  padding-top: var(--space-12); /* clear the toggle btn */
+}
+
+.sources-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--c-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .sources-open {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 50;
+    box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+  }
+}

@@ -1,0 +1,160 @@
+.indexing-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Stages list */
+.stages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.stage-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-4);
+  position: relative;
+  padding-bottom: var(--space-5);
+}
+
+/* Vertical connector line */
+.stage-line {
+  position: absolute;
+  left: 13px;
+  top: 28px;
+  bottom: 0;
+  width: 2px;
+  background: var(--c-border);
+  border-radius: 1px;
+  transition: background var(--duration-slow) var(--ease-out);
+}
+
+.stage-line--done {
+  background: var(--c-success);
+}
+
+/* Stage icon */
+.stage-icon-wrap {
+  grid-row: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--c-border);
+  background: var(--c-bg-elevated);
+  z-index: 1;
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+  position: relative;
+}
+
+.stage-pending .stage-icon-wrap {
+  color: var(--c-text-tertiary);
+  border-color: var(--c-border);
+}
+
+.stage-active .stage-icon-wrap {
+  color: var(--c-accent);
+  border-color: var(--c-accent);
+  background: var(--c-accent-subtle);
+  box-shadow: 0 0 0 4px var(--c-accent-glow);
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+
+.stage-done .stage-icon-wrap {
+  color: var(--c-success);
+  border-color: var(--c-success);
+  background: rgba(48, 209, 88, 0.12);
+}
+
+.stage-error .stage-icon-wrap {
+  color: var(--c-error);
+  border-color: var(--c-error);
+  background: rgba(255, 69, 58, 0.12);
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 var(--c-accent-glow); }
+  50%       { box-shadow: 0 0 0 6px rgba(10,132,255,0); }
+}
+
+/* Stage content */
+.stage-content {
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 4px;
+}
+
+.stage-label {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-primary);
+  transition: color var(--duration-fast);
+}
+
+.stage-pending .stage-label { color: var(--c-text-tertiary); }
+.stage-active .stage-label  { color: var(--c-text-primary); }
+.stage-done .stage-label    { color: var(--c-text-secondary); }
+
+.stage-desc {
+  font-size: var(--text-xs);
+  color: var(--c-text-tertiary);
+  line-height: 1.4;
+  transition: color var(--duration-fast);
+}
+
+.stage-active .stage-desc { color: var(--c-text-secondary); }
+
+/* Sub progress */
+.stage-sub-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.stage-pct {
+  font-size: var(--text-xs);
+  color: var(--c-accent);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  min-width: 36px;
+}
+
+/* Overall status bar */
+.indexing-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--r-lg);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+
+.status-running {
+  background: var(--c-accent-subtle);
+  color: var(--c-accent);
+  border: 1px solid rgba(10,132,255,0.2);
+}
+
+.status-done {
+  background: rgba(48,209,88,0.1);
+  color: var(--c-success);
+  border: 1px solid rgba(48,209,88,0.2);
+}
+
+.status-error {
+  background: rgba(255,69,58,0.1);
+  color: var(--c-error);
+  border: 1px solid rgba(255,69,58,0.2);
+}

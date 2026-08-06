@@ -1,0 +1,109 @@
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--navbar-h);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+}
+
+/* Logo */
+.navbar-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.navbar-logo:hover { opacity: 0.8; }
+
+.navbar-logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--c-accent), var(--c-purple));
+  border-radius: var(--r-md);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(10,132,255,0.35);
+  flex-shrink: 0;
+}
+
+.navbar-logo-text {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-snug);
+}
+
+.navbar-logo-name { color: var(--c-text-primary); }
+.navbar-logo-suffix { color: var(--c-text-secondary); }
+
+/* Right side */
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Connection indicator */
+.navbar-conn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  cursor: default;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.conn-on {
+  background: rgba(48, 209, 88, 0.1);
+  color: var(--c-success);
+  border: 1px solid rgba(48, 209, 88, 0.2);
+}
+
+.conn-off {
+  background: rgba(255, 69, 58, 0.1);
+  color: var(--c-error);
+  border: 1px solid rgba(255, 69, 58, 0.2);
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.conn-on .conn-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.conn-label {
+  font-size: 11px;
+  letter-spacing: var(--ls-wide);
+}
+
+.navbar-gh {
+  color: var(--c-text-secondary);
+}

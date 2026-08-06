@@ -1,0 +1,128 @@
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: var(--space-4);
+}
+
+.modal-sheet {
+  width: 100%;
+  max-width: 520px;
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border-mid);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-6);
+  gap: var(--space-4);
+}
+
+.modal-header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.modal-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-lg);
+  background: var(--c-bg-raised);
+  border: 1px solid var(--c-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-primary);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-snug);
+  margin-bottom: 2px;
+}
+
+.modal-subtitle {
+  font-size: var(--text-sm);
+  color: var(--c-text-secondary);
+}
+
+.modal-divider {
+  height: 1px;
+  background: var(--c-border);
+}
+
+.modal-body {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.form-label {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-secondary);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.form-label-optional {
+  color: var(--c-text-tertiary);
+  font-weight: var(--fw-regular);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--text-xs);
+}
+
+.modal-input {
+  background: var(--c-bg-raised);
+  font-size: var(--text-sm);
+}
+
+.form-error {
+  font-size: var(--text-xs);
+  color: var(--c-error);
+  margin-top: 2px;
+}
+
+.modal-examples { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.modal-examples-label {
+  font-size: var(--text-xs);
+  color: var(--c-text-tertiary);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-caps);
+}
+
+.modal-examples-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.modal-submit {
+  width: 100%;
+  justify-content: center;
+}

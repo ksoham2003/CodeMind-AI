@@ -1,0 +1,122 @@
+.indexing-page {
+  min-height: 100vh;
+  padding-top: var(--navbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.indexing-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.indexing-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+}
+
+.indexing-orb--1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(10,132,255,0.1) 0%, transparent 70%);
+  top: 10%;
+  left: 10%;
+  animation: float-slow 9s ease-in-out infinite;
+}
+
+.indexing-orb--2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(191,90,242,0.08) 0%, transparent 70%);
+  bottom: 15%;
+  right: 10%;
+  animation: float-slow 11s ease-in-out infinite reverse;
+}
+
+.indexing-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 560px;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.indexing-back {
+  align-self: flex-start;
+}
+
+.indexing-card {
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.indexing-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.indexing-brain-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, var(--c-accent), var(--c-purple));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(10,132,255,0.3);
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 4px 16px rgba(10,132,255,0.3); }
+  50%       { box-shadow: 0 4px 24px rgba(10,132,255,0.5); }
+}
+
+.indexing-title {
+  font-size: var(--text-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-snug);
+  margin-bottom: 4px;
+}
+
+.indexing-subtitle {
+  font-size: var(--text-sm);
+  color: var(--c-text-secondary);
+}
+
+.indexing-card-body {
+  padding: var(--space-6);
+}
+
+/* Info callout */
+.indexing-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: rgba(48, 209, 88, 0.06);
+  border: 1px solid rgba(48, 209, 88, 0.15);
+  border-radius: var(--r-lg);
+  color: var(--c-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.indexing-info svg {
+  color: var(--c-success);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
