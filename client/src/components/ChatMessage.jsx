@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -51,12 +51,10 @@ export default function ChatMessage({ message }) {
 
   return (
     <div className={`chat-message ${isUser ? 'msg-user' : 'msg-ai'} animate-fade-up`}>
-      {/* Avatar */}
       <div className={`msg-avatar ${isUser ? 'avatar-user' : 'avatar-ai'}`} aria-hidden="true">
         {isUser ? <User size={14} /> : <Brain size={14} />}
       </div>
 
-      {/* Bubble */}
       <div className={`msg-bubble ${isUser ? 'bubble-user' : 'bubble-ai'}`}>
         {isUser ? (
           <p className="msg-text">{message.content}</p>
@@ -65,10 +63,12 @@ export default function ChatMessage({ message }) {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                code({ node, inline, className, children, ...props }) {
+                code({ inline, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
+                  const lang = match?.[1];
+
                   return !inline ? (
-                    <CodeBlock language={match?.[1]}>
+                    <CodeBlock language={lang}>
                       {children}
                     </CodeBlock>
                   ) : (
@@ -84,7 +84,6 @@ export default function ChatMessage({ message }) {
           </div>
         )}
 
-        {/* Timestamp */}
         {message.timestamp && (
           <time className="msg-time" dateTime={message.timestamp}>
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -94,3 +93,4 @@ export default function ChatMessage({ message }) {
     </div>
   );
 }
+

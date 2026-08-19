@@ -90,6 +90,54 @@
   font-weight: var(--fw-medium);
 }
 
+.sidebar-arch-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar-arch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--r-lg);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+}
+
+.sidebar-arch-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+.sidebar-arch-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sidebar-arch-btn--secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--c-text-primary);
+  border-color: var(--c-border);
+  box-shadow: none;
+}
+
+.sidebar-arch-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: var(--c-border-mid) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 .sidebar-gh-link {
   display: flex;
   align-items: center;
@@ -228,4 +276,37 @@
     z-index: 50;
     box-shadow: -10px 0 30px rgba(0,0,0,0.5);
   }
+}
+
+/* Provider error banner */
+.provider-error-banner {
+  position: fixed;
+  top: var(--navbar-h);
+  left: calc(var(--sidebar-w) + 16px);
+  right: 16px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, rgba(220,38,38,0.95), rgba(185,28,28,0.95));
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.provider-error-content {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.provider-error-msg {
+  margin-left: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  opacity: 0.95;
+}
+.provider-error-actions {
+  display: flex;
+  gap: 8px;
 }

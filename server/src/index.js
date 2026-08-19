@@ -4,10 +4,23 @@ require('express-async-errors');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { getRedis } = require('./config/redis');
+const { createAdapter } = require('@socket.io/redis-adapter');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const rateLimiter = require('./middleware/rateLimiter');
+const sessionMiddleware = require('./middleware/sessionMiddleware');
+// Optionally start the worker in-process when START_WORKER=true
+if (process.env.START_WORKER === 'true') {
+  try {
+    require('./workers/indexingWorker');
+    console.log('Worker started in-process');
+  } catch (err) {
+    console.error('Failed to start worker in-process:', err);
+  }
+}
 
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
@@ -18,6 +31,8 @@ const indexRoutes = require('./routes/index');
 const chatRoutes = require('./routes/chat');
 const projectRoutes = require('./routes/projects');
 const authRoutes = require('./routes/auth');
+const architectureRoutes = require('./routes/architecture');
+const jobsRoutes = require('./routes/jobs');
 const jwt = require('jsonwebtoken');
 
 // Controllers that need Socket.io injected
@@ -37,6 +52,21 @@ const io = new Server(server, {
 // Inject io into indexController
 setIo(io);
 
+// Configure Socket.io Redis adapter for scaling (best-effort)
+(async () => {
+  try {
+    const redis = getRedis();
+    const pubClient = redis.duplicate();
+    const subClient = redis.duplicate();
+    await pubClient.connect();
+    await subClient.connect();
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log('Socket.io Redis adapter configured');
+  } catch (err) {
+    console.warn('Socket.io Redis adapter not configured:', err.message || err);
+  }
+})();
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
@@ -45,6 +75,12 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
+
+// Session middleware (optional, enabled with SESSIONS_ENABLED=true)
+app.use(sessionMiddleware(app));
+
+// Apply rate limiter to API routes
+app.use('/api', rateLimiter());
 
 // ── Ensure temp directory ─────────────────────────────────────────────────────
 const tempDir = path.join(__dirname, '..', process.env.TEMP_DIR || 'temp');
@@ -66,6 +102,8 @@ app.use('/api/repository', repositoryRoutes);
 app.use('/api/index', indexRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/architecture', architectureRoutes);
+app.use('/api/jobs', jobsRoutes);
 
 // Serving frontend build assets in production
 if (process.env.NODE_ENV === 'production') {

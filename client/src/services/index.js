@@ -21,3 +21,9 @@ export const chatService = {
   getHistory: (projectId, page = 1, limit = 50) =>
     api.get(`/chat/history/${projectId}?page=${page}&limit=${limit}`),
 };
+
+export const architectureService = {
+  visualize: (projectId, diagramType = 'component') =>
+    api.post('/architecture/visualize', { projectId, diagramType }),
+};
+

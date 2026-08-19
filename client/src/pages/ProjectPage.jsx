@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { GitBranch, ArrowLeft, Loader2, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
-import { projectService, chatService } from '../services';
+import { GitBranch, ArrowLeft, Loader2, Maximize2, Minimize2, ExternalLink, Network, Sparkles } from 'lucide-react';
+import { projectService, chatService, architectureService } from '../services';
 import ChatMessage from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import SourcePanel from '../components/SourcePanel';
@@ -19,6 +19,8 @@ export default function ProjectPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
+  const [visualizing, setVisualizing] = useState(false);
+  const [providerError, setProviderError] = useState(null);
 
   const messagesEndRef = useRef(null);
 
@@ -62,43 +64,69 @@ export default function ProjectPage() {
     init();
   }, [id]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   const handleSend = async (question) => {
-    if (!question.trim()) return;
+    if (!question || !question.trim()) return;
 
-    // Optimistic user message
     const userMsg = { role: 'user', content: question, timestamp: new Date().toISOString() };
     setMessages((prev) => [...prev, userMsg]);
     setSending(true);
 
     try {
       const res = await chatService.send(id, question);
-      
+
       const aiMsg = {
         role: 'ai',
         content: res.answer,
         sources: res.sources,
         timestamp: new Date().toISOString(),
       };
-      
+
       setMessages((prev) => [...prev, aiMsg]);
       setSources(res.sources || []);
-      
-      if (res.sources?.length > 0) {
-        setSourcePanelOpen(true);
-      } else {
-        setSourcePanelOpen(false);
-      }
+      setSourcePanelOpen(!!(res.sources && res.sources.length > 0));
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'ai', content: `❌ Error: ${err.message}` },
-      ]);
+      setMessages((prev) => [...prev, { role: 'ai', content: `❌ Error: ${err.message}` }]);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleVisualize = async () => {
+    if (visualizing || project?.status !== 'ready') return;
+    setVisualizing(true);
+
+    // Add a user-style message
+    const userMsg = {
+      role: 'user',
+      content: '🏗️ Visualize the architecture of this repository',
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    try {
+      const res = await architectureService.visualize(id, 'component');
+
+          const diagramContent = `Here's the architecture diagram for **${project.name}**:\n\n${res.summary}`;
+
+      const aiMsg = {
+        role: 'ai',
+        content: diagramContent,
+            graph: res.graph,
+            timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+      setSourcePanelOpen(false);
+      // clear any previous provider errors on success
+      setProviderError(null);
+    } catch (err) {
+      // Surface detailed provider errors in a banner and also append an AI message
+      setProviderError(err.message);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'ai', content: `❌ Failed to generate architecture diagram: ${err.message}` },
+      ]);
+    } finally {
+      setVisualizing(false);
     }
   };
 
@@ -126,6 +154,22 @@ export default function ProjectPage() {
 
   return (
     <div className="project-page">
+      {providerError && (
+        <div className="provider-error-banner">
+          <div className="provider-error-content">
+            <strong>AI Provider Error:</strong>
+            <span className="provider-error-msg">{providerError}</span>
+          </div>
+          <div className="provider-error-actions">
+            <button className="btn btn-ghost" onClick={() => { setProviderError(null); }}>
+              Dismiss
+            </button>
+            <button className="btn btn-primary" onClick={handleVisualize} disabled={visualizing}>
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
       {/* ── Sidebar (File Tree Placeholder) ── */}
       <aside className="project-sidebar glass-raised">
         <div className="sidebar-header">
@@ -162,6 +206,31 @@ export default function ProjectPage() {
               </div>
            </div>
 
+           {/* Architecture Visualization Actions */}
+           {project.status === 'ready' && (
+             <div className="sidebar-arch-actions">
+               <button
+                 className="sidebar-arch-btn"
+                 onClick={handleVisualize}
+                 disabled={visualizing}
+               >
+                 {visualizing ? (
+                   <Loader2 size={14} className="spin-icon" />
+                 ) : (
+                   <Sparkles size={14} />
+                 )}
+                   <span>{visualizing ? 'Generating…' : 'Visualize Architecture'}</span>
+                 </button>
+                 <button
+                   className="sidebar-arch-btn sidebar-arch-btn--secondary"
+                   onClick={() => navigate(`/project/${id}/architecture`)}
+                 >
+                   <Network size={14} />
+                   <span>Architecture Explorer</span>
+                 </button>
+               </div>
+             )}
+
            {project.githubUrl && (
              <a
                href={project.githubUrl}
@@ -185,20 +254,9 @@ export default function ProjectPage() {
               <SuggestedQuestions onSelect={handleSend} />
             </div>
           ) : (
-            <div className="chat-messages">
-              {messages.map((msg, i) => (
-                <ChatMessage key={i} message={msg} />
-              ))}
-              {sending && (
-                <div className="chat-loading animate-fade-in">
-                  <div className="chat-typing-dot" />
-                  <div className="chat-typing-dot delay-1" />
-                  <div className="chat-typing-dot delay-2" />
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
+            messages.map((m, i) => <ChatMessage key={i} message={m} />)
           )}
+          <div ref={messagesEndRef} />
         </div>
         
         <div className="chat-input-container">

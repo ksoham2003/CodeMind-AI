@@ -6,6 +6,7 @@ import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
 import ProjectPage from './pages/ProjectPage';
 import IndexingPage from './pages/IndexingPage';
+import ArchitecturePage from './pages/ArchitecturePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import LandingPage from './pages/LandingPage';
@@ -55,6 +56,11 @@ export default function App() {
                 <Route path="/project/:id/indexing" element={
                   <ProtectedRoute>
                     <IndexingPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/project/:id/architecture" element={
+                  <ProtectedRoute>
+                    <ArchitecturePage />
                   </ProtectedRoute>
                 } />
                 <Route path="*" element={<NotFoundPage />} />

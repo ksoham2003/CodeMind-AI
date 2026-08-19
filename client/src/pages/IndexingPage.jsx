@@ -9,7 +9,7 @@ import './IndexingPage.css';
 export default function IndexingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { joinProject, leaveProject, onIndexingProgress, connected } = useSocket();
+  const { joinProject, leaveProject , onIndexingProgress, connected } = useSocket();
   const progressRef = useRef(null);
   const projectRef = useRef(null);
   const pollIntervalRef = useRef(null);

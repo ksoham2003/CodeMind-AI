@@ -1,4 +1,6 @@
 const { getEmbeddingClient } = require('../config/gemini');
+const { getRedis } = require('../config/redis');
+const crypto = require('crypto');
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIMENSION = 3072;
@@ -11,11 +13,34 @@ const BATCH_SIZE = 50;
  */
 const embedText = async (text) => {
   const gemini = getEmbeddingClient();
+  const redis = getRedis();
+  const hash = crypto.createHash('sha256').update(text).digest('hex');
+  const cacheKey = `embed:${hash}`;
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (err) {
+    // ignore cache errors
+    console.warn('Embedding cache read error:', err.message || err);
+  }
+
   const response = await gemini.models.embedContent({
     model: EMBEDDING_MODEL,
     contents: text.replace(/\n/g, ' '),
   });
-  return response.embeddings[0].values;
+
+  const values = response.embeddings[0].values;
+
+  try {
+    await redis.set(cacheKey, JSON.stringify(values), 'EX', 60 * 60 * 24); // cache 24h
+  } catch (err) {
+    console.warn('Embedding cache write error:', err.message || err);
+  }
+
+  return values;
 };
 
 /**

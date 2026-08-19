@@ -9,6 +9,10 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "ioredis": "^5.3.2",
+    "bullmq": "^1.74.0",
+    "express-session": "^1.17.3",
+    "connect-redis": "^6.0.0",
     "@google/genai": "^2.16.0",
     "@pinecone-database/pinecone": "^3.0.3",
     "archiver": "^7.0.1",
@@ -26,6 +30,7 @@
     "rimraf": "^6.0.1",
     "simple-git": "^3.27.0",
     "socket.io": "^4.8.1",
+    "@socket.io/redis-adapter": "^7.1.0",
     "tree-sitter": "^0.21.1",
     "tree-sitter-javascript": "^0.21.4",
     "tree-sitter-typescript": "^0.21.2",

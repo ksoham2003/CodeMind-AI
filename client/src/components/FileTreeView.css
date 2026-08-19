@@ -1,0 +1,108 @@
+.file-tree-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: var(--text-sm);
+  color: var(--c-text-secondary);
+}
+
+.tree-search-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+
+.search-icon {
+  color: var(--c-text-tertiary);
+  flex-shrink: 0;
+}
+
+.tree-search-input {
+  background: transparent;
+  border: none;
+  color: var(--c-text-primary);
+  font-size: var(--text-xs);
+  width: 100%;
+  outline: none;
+}
+
+.tree-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+/* File Tree Nodes */
+.file-node {
+  user-select: none;
+}
+
+.directory-header,
+.file-node-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.directory-header:hover,
+.file-node-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--c-text-primary);
+}
+
+.chevron-icon {
+  color: var(--c-text-tertiary);
+  transition: transform var(--duration-fast) ease;
+  flex-shrink: 0;
+}
+
+.chevron-open {
+  transform: rotate(90deg);
+}
+
+.node-icon {
+  flex-shrink: 0;
+}
+
+.folder-icon {
+  color: #fbbf24; /* Warm yellow */
+}
+
+.folder-icon--open {
+  color: #f59e0b;
+}
+
+.file-icon {
+  color: #60a5fa; /* Soft blue */
+}
+
+.node-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.directory-children {
+  margin-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  padding-left: 4px;
+}
+
+.tree-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  color: var(--c-text-tertiary);
+}

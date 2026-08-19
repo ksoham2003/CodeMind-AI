@@ -21,7 +21,14 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    // Prefer explicit provider error messages when available
+    const providerMessage =
+      error.response?.data?.error?.error?.message ||
+      error.response?.data?.error?.message ||
+      error.response?.data?.error || null;
+
     const message =
+      providerMessage ||
       error.response?.data?.message ||
       error.message ||
       'An unexpected error occurred';
