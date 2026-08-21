@@ -47,12 +47,20 @@ const embedText = async (text) => {
   try {
     const cached = await redis.get(cacheKey);
     if (cached) {
+      // Metrics: cache hit
+      try { await redis.incr('metrics:embed:cache_hits'); } catch (e) {}
       return JSON.parse(cached);
     }
   } catch (err) {
     // ignore cache errors
     console.warn('Embedding cache read error:', err.message || err);
   }
+
+  // Metrics: cache miss
+  try { await redis.incr('metrics:embed:cache_misses'); } catch (e) {}
+
+  // Metrics: request (we will attempt to generate an embedding)
+  try { await redis.incr('metrics:embed:requests'); } catch (e) {}
 
   let values;
   if (EMBEDDING_PROVIDER === 'local') {
@@ -87,8 +95,30 @@ const embedText = async (text) => {
   } catch (err) {
     console.warn('Embedding cache write error:', err.message || err);
   }
+  try {
+    return values;
+  } catch (e) {
+    // Defensive: if anything goes wrong serializing/returning, increment error metric
+    try { await redis.incr('metrics:embed:errors'); } catch (err) {}
+    throw e;
+  }
+};
 
-  return values;
+// Return basic embedding metrics from Redis
+const getEmbeddingMetrics = async () => {
+  const redis = getRedis();
+  const keys = ['metrics:embed:requests', 'metrics:embed:cache_hits', 'metrics:embed:cache_misses', 'metrics:embed:errors', 'metrics:embed:batch_calls'];
+  const res = {};
+  try {
+    const vals = await redis.mget(...keys);
+    for (let i = 0; i < keys.length; i++) {
+      res[keys[i].replace('metrics:embed:', '')] = parseInt(vals[i] || '0', 10);
+    }
+  } catch (e) {
+    console.warn('Failed to read embedding metrics from Redis:', e.message || e);
+    for (const k of keys) res[k.replace('metrics:embed:', '')] = 0;
+  }
+  return res;
 };
 
 // Generic fetch with retry/backoff for transient network errors
@@ -123,6 +153,7 @@ const fetchWithRetry = async (url, opts = {}, attempts = EMBED_RETRY_ATTEMPTS, b
 const embedChunks = async (chunks, onProgress = () => {}) => {
   const vectors = [];
   const total = chunks.length;
+  const redis = getRedis();
 
   // Deduplicate identical texts to avoid duplicate embedding calls
   const uniqueMap = new Map(); // textHash -> { text, ids: [] }
@@ -144,14 +175,23 @@ const embedChunks = async (chunks, onProgress = () => {}) => {
     if (EMBEDDING_PROVIDER === 'local') {
       const localUrl = process.env.EMBEDDING_LOCAL_URL || 'http://embedding-server:8000';
       const texts = batch.map(([, item]) => item.text);
-      const resp = await fetchWithRetry(`${localUrl}/embed/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ texts }),
-      });
-      if (!resp.ok) throw new Error(`Local embedding server batch error: ${resp.status}`);
-      const data = await resp.json();
-      embeddings = data.embeddings;
+      try {
+        try { await redis.incr('metrics:embed:batch_calls'); } catch (e) {}
+        const resp = await fetchWithRetry(`${localUrl}/embed/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ texts }),
+        });
+        if (!resp.ok) {
+          try { await redis.incr('metrics:embed:errors'); } catch (e) {}
+          throw new Error(`Local embedding server batch error: ${resp.status}`);
+        }
+        const data = await resp.json();
+        embeddings = data.embeddings;
+      } catch (err) {
+        try { await redis.incr('metrics:embed:errors'); } catch (e) {}
+        throw err;
+      }
     } else {
       embeddings = await Promise.all(
         batch.map(async ([hash, item]) => {
@@ -175,4 +215,4 @@ const embedChunks = async (chunks, onProgress = () => {}) => {
   return vectors;
 };
 
-module.exports = { embedText, embedChunks, EMBEDDING_DIMENSION };
+module.exports = { embedText, embedChunks, EMBEDDING_DIMENSION, getEmbeddingMetrics };
