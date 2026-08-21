@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage';
 import ProjectPage from './pages/ProjectPage';
 import IndexingPage from './pages/IndexingPage';
 import ArchitecturePage from './pages/ArchitecturePage';
+import CostDashboard from './pages/CostDashboard';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import LandingPage from './pages/LandingPage';
@@ -61,6 +62,11 @@ export default function App() {
                 <Route path="/project/:id/architecture" element={
                   <ProtectedRoute>
                     <ArchitecturePage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/costs" element={
+                  <ProtectedRoute>
+                    <CostDashboard />
                   </ProtectedRoute>
                 } />
                 <Route path="*" element={<NotFoundPage />} />

@@ -4,6 +4,7 @@ import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { LogOut } from 'lucide-react';
 import './Navbar.css';
+import { Link } from 'react-router-dom';
 
 export default function Navbar() {
   const location = useLocation();
@@ -44,6 +45,8 @@ export default function Navbar() {
               </button>
             </>
           )}
+
+          <Link to="/costs" className="btn btn-ghost" title="Cost Dashboard">Costs</Link>
 
           {/* GitHub link */}
           <a
