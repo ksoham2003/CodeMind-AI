@@ -18,37 +18,61 @@ services:
   server:
     build: ./server
     restart: unless-stopped
+    env_file:
+      - ./server/.env
     environment:
       - PORT=5000
-      - MONGO_URI=mongodb://mongo:27017/codemind
+      - CLIENT_URL=http://localhost
+      - MONGODB_URI=mongodb://mongo:27017/codemind
       - REDIS_URL=redis://redis:6379
+      - EMBEDDING_PROVIDER=local
+      - EMBEDDING_LOCAL_URL=http://embedding-server:8000
       - NODE_ENV=production
     ports:
       - "5000:5000"
     depends_on:
       - mongo
       - redis
+      - embedding-server
 
   worker:
     build: ./server
     restart: unless-stopped
+    env_file:
+      - ./server/.env
     command: node src/workers/indexingWorker.js
     environment:
       - REDIS_URL=redis://redis:6379
-      - MONGO_URI=mongodb://mongo:27017/codemind
+      - MONGODB_URI=mongodb://mongo:27017/codemind
       - START_WORKER=true
       - QUEUE_CONCURRENCY=2
+      - EMBEDDING_PROVIDER=local
+      - EMBEDDING_LOCAL_URL=http://embedding-server:8000
     depends_on:
       - redis
       - mongo
+      - embedding-server
+
+  embedding-server:
+    build: ./embedding-server
+    restart: unless-stopped
+    environment:
+      - EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
 
   client:
-    build: ./client
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: "http://localhost:5000"
     restart: unless-stopped
     ports:
       - "80:80"
     environment:
-      - VITE_API_URL=http://localhost:5000/api
+      - VITE_API_URL=http://localhost:5000
 
 volumes:
   mongo_data:

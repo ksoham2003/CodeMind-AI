@@ -33,6 +33,7 @@ const projectRoutes = require('./routes/projects');
 const authRoutes = require('./routes/auth');
 const architectureRoutes = require('./routes/architecture');
 const jobsRoutes = require('./routes/jobs');
+const debugRoutes = require('./routes/debug');
 const jwt = require('jsonwebtoken');
 
 // Controllers that need Socket.io injected
@@ -42,10 +43,25 @@ const { setIo } = require('./controllers/indexController');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost',
+  'http://localhost:5173',
+  'http://127.0.0.1',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
@@ -69,7 +85,13 @@ setIo(io);
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -104,6 +126,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/architecture', architectureRoutes);
 app.use('/api/jobs', jobsRoutes);
+app.use('/api/debug', debugRoutes);
 
 // Serving frontend build assets in production
 if (process.env.NODE_ENV === 'production') {

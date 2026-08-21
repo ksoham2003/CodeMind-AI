@@ -43,6 +43,29 @@ const startIndexing = async (req, res) => {
 };
 
 /**
+ * POST /api/index/retry
+ * Body: { projectId }
+ * Resume a previously failed indexing run from the last persisted progress markers.
+ */
+const retryIndexing = async (req, res) => {
+  const { projectId } = req.body;
+  if (!projectId) return res.status(400).json({ success: false, message: 'projectId is required' });
+
+  const project = await Project.findById(projectId);
+  if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+  if (project.status !== 'error' && project.status !== 'embedding' && project.status !== 'indexing') {
+    return res.status(400).json({ success: false, message: 'Project is not in a failed or incomplete state' });
+  }
+
+  res.status(202).json({ success: true, message: 'Retry scheduled', project });
+
+  runIndexingPipeline(projectId, ioInstance).catch((err) => {
+    console.error('Retry pipeline error (caught at controller):', err.message);
+  });
+};
+
+/**
  * GET /api/index/status/:projectId
  */
 const getIndexingStatus = async (req, res) => {
@@ -55,4 +78,4 @@ const getIndexingStatus = async (req, res) => {
   res.json({ success: true, project });
 };
 
-module.exports = { startIndexing, getIndexingStatus, setIo };
+module.exports = { startIndexing, getIndexingStatus, retryIndexing, setIo };

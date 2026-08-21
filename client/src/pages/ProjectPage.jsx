@@ -43,7 +43,9 @@ export default function ProjectPage() {
             role: 'ai',
             content: chat.answer,
             sources: chat.sources,
+            // diagrams are intentionally excluded from chat history
             timestamp: chat.createdAt,
+            projectId: id,
           });
         }
         setMessages(history);
@@ -108,11 +110,12 @@ export default function ProjectPage() {
 
           const diagramContent = `Here's the architecture diagram for **${project.name}**:\n\n${res.summary}`;
 
+      // Add only the textual summary to the chat — the visual diagram
+      // is intentionally not embedded into chat messages.
       const aiMsg = {
         role: 'ai',
         content: diagramContent,
-            graph: res.graph,
-            timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, aiMsg]);
       setSourcePanelOpen(false);

@@ -1,4 +1,4 @@
-const { getPineconeIndex } = require('../config/pinecone');
+const { getPineconeIndex, getPineconeClient } = require('../config/pinecone');
 
 const UPSERT_BATCH_SIZE = 100;
 
@@ -28,14 +28,59 @@ const upsertVectors = async (vectors, onProgress = () => {}) => {
 const querySimilar = async (queryVector, repoId, topK = 10) => {
   const index = getPineconeIndex();
 
-  const results = await index.query({
-    vector: queryVector,
-    topK,
-    includeMetadata: true,
-    filter: { repoId: { $eq: repoId } },
-  });
+  // Check index dimension to provide a clear error when vectors mismatch
+  try {
+    // Try to fetch index metadata via the client list/describe APIs
+    const client = getPineconeClient();
+    let indexInfo = null;
+    try {
+      const listRes = await client.listIndexes();
+      // listIndexes may return { indexes: [ ... ] } or an array
+      const indexes = Array.isArray(listRes) ? listRes : listRes?.indexes || [];
+      indexInfo = indexes.find((i) => i.name === process.env.PINECONE_INDEX_NAME) || null;
+    } catch (e) {
+      // ignore and continue — we'll still attempt query and let Pinecone raise the error
+      indexInfo = null;
+    }
 
-  return results.matches || [];
+    const results = await index.query({
+      vector: queryVector,
+      topK,
+      includeMetadata: true,
+      filter: { repoId: { $eq: repoId } },
+    });
+
+    return results.matches || [];
+  } catch (err) {
+    // Detect dimension mismatch and throw a clearer, actionable error
+    const msg = err && (err.message || err.toString());
+    if (msg && /dimension/i.test(msg)) {
+      const vectorDim = Array.isArray(queryVector) ? queryVector.length : undefined;
+      // Try to discover index dimension if possible
+      let indexDim;
+      try {
+        const client = getPineconeClient();
+        const listRes = await client.listIndexes();
+        const indexes = Array.isArray(listRes) ? listRes : listRes?.indexes || [];
+        const info = indexes.find((i) => i.name === process.env.PINECONE_INDEX_NAME) || null;
+        indexDim = info?.dimension;
+      } catch (e) {
+        indexDim = undefined;
+      }
+
+      const e = new Error(
+        `Embedding dimension mismatch: vector dimension ${vectorDim || 'unknown'} does not match Pinecone index${process.env.PINECONE_INDEX_NAME ? ` (${process.env.PINECONE_INDEX_NAME})` : ''} dimension ${indexDim || 'unknown'}.` +
+          ' Ensure your embedding provider/model matches the index dimension, or create a matching index.'
+      );
+      e.code = 'DIMENSION_MISMATCH';
+      e.vectorDim = vectorDim;
+      e.indexDim = indexDim;
+      throw e;
+    }
+
+    // Re-throw other errors
+    throw err;
+  }
 };
 
 /**

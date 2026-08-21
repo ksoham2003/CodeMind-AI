@@ -42,6 +42,11 @@ const projectSchema = new mongoose.Schema(
     // File tree stored as JSON for the sidebar
     fileTree: { type: mongoose.Schema.Types.Mixed, default: null },
     indexedAt: { type: Date, default: null },
+    // Cached generated diagrams per type; cleared when repository is re-indexed
+    diagrams: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Progress markers to allow resuming failed indexing runs
+    embeddingProgress: { type: Number, default: 0 },
+    upsertProgress: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

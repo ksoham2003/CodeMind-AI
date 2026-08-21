@@ -36,6 +36,7 @@ const chatSchema = new mongoose.Schema(
         content: String,
       },
     ],
+    // Optional embedded diagram generated for this chat (architecture visualization)
     tokensUsed: { type: Number, default: 0 },
   },
   { timestamps: true }

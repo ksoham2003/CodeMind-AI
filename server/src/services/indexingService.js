@@ -21,6 +21,13 @@ const SUPPORTED_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx'];
  * Emit a progress event to the connected socket room
  */
 const emitProgress = (io, projectId, stage, message, data = {}) => {
+  // If no socket.io instance is provided (e.g., manual CLI run),
+  // fall back to logging to console instead of throwing.
+  if (!io || typeof io.to !== 'function') {
+    console.log(`[indexing:${stage}] ${projectId} - ${message}`, data || {});
+    return;
+  }
+
   io.to(projectId).emit('indexing:progress', {
     stage,
     message,
@@ -41,6 +48,9 @@ const runIndexingPipeline = async (projectId, io) => {
   try {
     project = await Project.findById(projectId);
     if (!project) throw new Error('Project not found');
+
+    // Clear cached diagrams when starting a fresh indexing run
+    await Project.findByIdAndUpdate(projectId, { diagrams: null });
 
     // ── Stage 1: Clone ────────────────────────────────────────────────────────
     await Project.findByIdAndUpdate(projectId, { status: 'cloning' });
@@ -94,34 +104,59 @@ const runIndexingPipeline = async (projectId, io) => {
     });
 
     // ── Stage 5: Embed ────────────────────────────────────────────────────────
+    // ── Stage 5: Embed ───────────────────────────────────────────────────────
     await Project.findByIdAndUpdate(projectId, { status: 'embedding' });
-    emitProgress(io, projectId, 'embedding', `Generating embeddings for ${chunks.length} chunks...`);
+
+    // Support resuming from partial embedding progress
+    const freshProject = await Project.findById(projectId);
+    const startEmbeddingAt = freshProject.embeddingProgress || 0;
+    emitProgress(io, projectId, 'embedding', `Generating embeddings for ${chunks.length} chunks...`, {
+      startAt: startEmbeddingAt,
+    });
 
     let embeddedCount = 0;
-    const vectors = await embedChunks(chunks, (done, total) => {
-      embeddedCount = done;
-      const pct = Math.round((done / total) * 100);
-      emitProgress(io, projectId, 'embedding', `Embedding ${done}/${total} chunks (${pct}%)`, {
-        done,
-        total,
+    // embedChunks reports progress relative to the slice passed; translate to absolute
+    const chunksToEmbed = chunks.slice(startEmbeddingAt);
+    const vectors = await embedChunks(chunksToEmbed, async (done, total) => {
+      embeddedCount = startEmbeddingAt + done;
+      const pct = Math.round((embeddedCount / chunks.length) * 100);
+      // persist embedding progress periodically
+      await Project.findByIdAndUpdate(projectId, { embeddingProgress: embeddedCount });
+      emitProgress(io, projectId, 'embedding', `Embedding ${embeddedCount}/${chunks.length} chunks (${pct}%)`, {
+        done: embeddedCount,
+        total: chunks.length,
         percent: pct,
       });
     });
 
+    // Adjust vector IDs to match original chunk ids (embedChunks returned ids from chunksToEmbed)
     emitProgress(io, projectId, 'embedding', 'Embeddings generated', { done: true });
 
     // ── Stage 6: Store in Pinecone ────────────────────────────────────────────
+    // ── Stage 6: Store in Pinecone ────────────────────────────────────────────
     await Project.findByIdAndUpdate(projectId, { status: 'indexing' });
-    emitProgress(io, projectId, 'indexing', `Uploading ${vectors.length} vectors to Pinecone...`);
 
-    await upsertVectors(vectors, (done, total) => {
-      const pct = Math.round((done / total) * 100);
-      emitProgress(io, projectId, 'indexing', `Stored ${done}/${total} vectors (${pct}%)`, {
-        done,
-        total,
+    // Support resuming upsert from where it left off
+    const freshAfterEmbed = await Project.findById(projectId);
+    const startUpsertAt = freshAfterEmbed.upsertProgress || 0;
+    emitProgress(io, projectId, 'indexing', `Uploading ${vectors.length} vectors to Pinecone...`, {
+      startAt: startUpsertAt,
+    });
+
+    // upsertVectors handles batching and reports progress; we pass a callback that persists progress
+    await upsertVectors(vectors.slice(startUpsertAt), async (done, total) => {
+      const absoluteDone = startUpsertAt + done;
+      await Project.findByIdAndUpdate(projectId, { upsertProgress: absoluteDone });
+      const pct = Math.round((absoluteDone / vectors.length) * 100);
+      emitProgress(io, projectId, 'indexing', `Stored ${absoluteDone}/${vectors.length} vectors (${pct}%)`, {
+        done: absoluteDone,
+        total: vectors.length,
         percent: pct,
       });
     });
+
+    // Clear progress markers after successful indexing
+    await Project.findByIdAndUpdate(projectId, { embeddingProgress: 0, upsertProgress: 0 });
 
     // ── Stage 7: Done ─────────────────────────────────────────────────────────
     await Project.findByIdAndUpdate(projectId, {

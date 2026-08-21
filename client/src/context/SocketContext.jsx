@@ -11,16 +11,18 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    
+
     if (!token) {
       setConnected(false);
       return;
     }
-    // If VITE_API_URL is not set, we default to empty string so it connects to the same host/port serving the app
-    const socket = io(import.meta.env.VITE_API_URL || '', {
-      transports: ['websocket', 'polling'],
+
+    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const socket = io(socketUrl, {
+      transports: ['polling', 'websocket'],
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
+      timeout: 10000,
       auth: {
         token: token,
       },

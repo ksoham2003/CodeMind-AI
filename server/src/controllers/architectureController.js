@@ -1,7 +1,7 @@
 const Project = require('../models/Project');
 const { embedText } = require('../services/embeddingService');
 const { querySimilar } = require('../services/pineconeService');
-const { generateArchitectureDiagram } = require('../services/llmService');
+const { generateArchitectureDiagram } = require('../services/llmWrapper');
 const { jobsQueue } = require('../queues/queue');
 
 /**
@@ -83,6 +83,20 @@ const visualizeArchitecture = async (req, res) => {
       project.fileTree
     );
 
+    // Persist the generated diagram on the Project so it can be reused until repo updates
+    try {
+      await Project.findByIdAndUpdate(projectId, {
+        $set: { [`diagrams.${diagramType}`]: { graph, summary, tokensUsed, generatedAt: new Date() } },
+      });
+    } catch (e) {
+      console.warn('Failed to persist diagram on project:', e?.message || e);
+    }
+
+    // Previously we created a Chat entry with an embedded diagram so it
+    // appeared in the chat history. That behaviour has been removed —
+    // architecture diagrams are persisted on the Project only and will
+    // not be injected into the chat history anymore.
+
     return res.json({
       success: true,
       graph,
@@ -101,6 +115,16 @@ const visualizeArchitecture = async (req, res) => {
         success: false,
         message: 'AI quota exceeded. Please try again later.',
         details: err && err.message ? err.message : undefined,
+      });
+    }
+
+    // If Pinecone dimension mismatch, return a helpful 400 with remediation
+    if (err && err.code === 'DIMENSION_MISMATCH') {
+      return res.status(400).json({
+        success: false,
+        message: 'Embedding / index dimension mismatch detected.',
+        details: err.message,
+        suggestion: 'Either recreate your Pinecone index with the embedding dimension shown above, or switch the server embedding provider/model to match the index (set EMBEDDING_PROVIDER and EMBEDDING_MODEL).',
       });
     }
 

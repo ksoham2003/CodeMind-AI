@@ -1,6 +1,10 @@
 const Groq = require('groq-sdk');
+const OpenAI = require('openai');
+const { getRedis } = require('../config/redis');
+const crypto = require('crypto');
 
 let groqClient = null;
+let openaiClient = null;
 
 const getGroqClient = () => {
   if (!groqClient) {
@@ -12,11 +16,72 @@ const getGroqClient = () => {
   return groqClient;
 };
 
+const getOpenAIClient = () => {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set.');
+    }
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openaiClient;
+};
+
+const normalizeOpenAIText = (response) => {
+  if (response.output_text) return response.output_text;
+
+  const output = response.output || [];
+  const combined = [];
+
+  for (const item of output) {
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (part.type === 'output_text' || part.type === 'text') {
+          combined.push(part.text || part.value || '');
+        }
+      }
+    }
+  }
+
+  return combined.join('\n').trim();
+};
+
+const getPreferredProvider = () => {
+  // Allow explicit override via LLM_PROVIDER env var: 'openai' | 'groq'
+  if (process.env.LLM_PROVIDER) {
+    const p = process.env.LLM_PROVIDER.toLowerCase();
+    if (p === 'openai') {
+      if (!process.env.OPENAI_API_KEY) throw new Error('LLM_PROVIDER=openai but OPENAI_API_KEY is not set.');
+      return 'openai';
+    }
+    if (p === 'groq') {
+      if (!process.env.GROQ_API_KEY) throw new Error('LLM_PROVIDER=groq but GROQ_API_KEY is not set.');
+      return 'groq';
+    }
+    throw new Error(`Unknown LLM_PROVIDER=${process.env.LLM_PROVIDER}`);
+  }
+  // Respect an explicit fallback priority list if provided.
+  // Example: LLM_FALLBACK_PRIORITY="openai,groq,gemini"
+  if (process.env.LLM_FALLBACK_PRIORITY) {
+    const order = process.env.LLM_FALLBACK_PRIORITY.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    for (const candidate of order) {
+      if (candidate === 'openai' && process.env.OPENAI_API_KEY) return 'openai';
+      if (candidate === 'groq' && process.env.GROQ_API_KEY) return 'groq';
+      if (candidate === 'gemini' && process.env.GEMINI_API_KEY) return 'gemini';
+    }
+  }
+
+  // Default behavior: prefer OpenAI, then Groq, then Gemini
+  if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.GROQ_API_KEY) return 'groq';
+  if (process.env.GEMINI_API_KEY) return 'gemini';
+  throw new Error('No LLM API key configured. Set OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY.');
+};
+
 // LLM model can be overridden via environment variable `LLM_MODEL`.
 // Default to a mainstream model that is commonly available if not set.
 const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
-// Separate model for chat (cheaper/smaller) to reduce cost for conversational flows
-const LLM_CHAT_MODEL = process.env.LLM_CHAT_MODEL || LLM_MODEL;
+// Prefer a cheaper chat model by default to reduce conversational costs; env overrides still apply
+const LLM_CHAT_MODEL = process.env.LLM_CHAT_MODEL || process.env.LLM_MODEL || 'gpt-3.5-turbo';
 const MAX_CONTEXT_CHUNKS = 8;
 const MAX_CONTEXT_CHARS = 12000;
 
@@ -68,25 +133,165 @@ Please provide a precise, well-structured answer referencing the specific files 
  * @param {string} repoName - Repository name
  * @returns {{ answer: string, tokensUsed: number }}
  */
+const LLM_RESPONSE_CACHE_TTL = Number(process.env.LLM_RESPONSE_CACHE_TTL || 30); // seconds
+
+// In-memory map to coalesce identical in-flight LLM requests within this process
+const inFlightRequests = new Map(); // cacheKey -> Promise
+
 const generateAnswer = async (question, retrievedChunks, repoName) => {
-  const groq = getGroqClient();
-  // Use chat-specific model to reduce cost if configured
-  const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+  const provider = getPreferredProvider();
 
-  const response = await groq.chat.completions.create({
-    model: modelToUse,
-    messages: [
-      { role: 'system', content: buildSystemPrompt(repoName) },
-      { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
-    ],
-    temperature: 0.1,
-    max_tokens: 2000,
-  });
+  // Compute a short cache key for this question+context
+  const modelId = LLM_CHAT_MODEL || LLM_MODEL;
+  const cacheKey = 'llm:resp:' + crypto.createHash('sha256').update(provider + '|' + modelId + '|' + repoName + '|' + question).digest('hex');
 
-  const answer = response.choices[0].message.content;
-  const tokensUsed = response.usage?.total_tokens || 0;
+  try {
+    const redis = getRedis();
+    // Try Redis cache
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {
+      // ignore cache read errors
+    }
 
-  return { answer, tokensUsed };
+    // If identical call is in-flight, await its promise
+    if (inFlightRequests.has(cacheKey)) {
+      return await inFlightRequests.get(cacheKey);
+    }
+
+    const promise = (async () => {
+      // Original generation logic follows
+      if (provider === 'openai') {
+        const client = getOpenAIClient();
+        const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+
+        try {
+          const response = await client.responses.create({
+            model: modelToUse,
+            input: [
+              { role: 'system', content: buildSystemPrompt(repoName) },
+              { role: 'user', content: buildUserPrompt(question, retrievedChunks) },
+            ],
+            temperature: 0.1,
+            max_output_tokens: 2000,
+          });
+
+          return {
+            answer: normalizeOpenAIText(response),
+            tokensUsed: response.usage?.total_tokens || 0,
+          };
+        } catch (err) {
+          const isQuota = err?.code === 'insufficient_quota' || (err?.status === 429) || /quota|insufficient/i.test(err?.message || '');
+          console.warn('OpenAI call failed:', err?.message || err);
+          // Attempt fallback to Groq if available
+          if (isQuota && process.env.GROQ_API_KEY) {
+            console.log('Falling back to Groq due to OpenAI quota/error');
+            const groq = getGroqClient();
+            const response = await groq.chat.completions.create({
+              model: LLM_CHAT_MODEL || LLM_MODEL,
+              messages: [
+                { role: 'system', content: buildSystemPrompt(repoName) },
+                { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+              ],
+              temperature: 0.1,
+              max_tokens: 2000,
+            });
+
+            return { answer: response.choices[0].message.content, tokensUsed: response.usage?.total_tokens || 0 };
+          }
+
+          // Retry with fallback model if configured
+          if (isQuota && process.env.LLM_FALLBACK_MODEL) {
+            try {
+              console.log('Retrying OpenAI with fallback model:', process.env.LLM_FALLBACK_MODEL);
+              const resp2 = await client.responses.create({
+                model: process.env.LLM_FALLBACK_MODEL,
+                input: [
+                  { role: 'system', content: buildSystemPrompt(repoName) },
+                  { role: 'user', content: buildUserPrompt(question, retrievedChunks) },
+                ],
+                temperature: 0.1,
+                max_output_tokens: 2000,
+              });
+              return {
+                answer: normalizeOpenAIText(resp2),
+                tokensUsed: resp2.usage?.total_tokens || 0,
+              };
+            } catch (err2) {
+              console.warn('Fallback model retry failed:', err2?.message || err2);
+            }
+          }
+
+          throw err;
+        }
+      }
+
+      const groq = getGroqClient();
+      const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+
+      const response = await groq.chat.completions.create({
+        model: modelToUse,
+        messages: [
+          { role: 'system', content: buildSystemPrompt(repoName) },
+          { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+        ],
+        temperature: 0.1,
+        max_tokens: 2000,
+      });
+
+      const answer = response.choices[0].message.content;
+      const tokensUsed = response.usage?.total_tokens || 0;
+
+      return { answer, tokensUsed };
+    })();
+
+    inFlightRequests.set(cacheKey, promise);
+    try {
+      const result = await promise;
+      // Cache short-term to reduce duplicate work
+      try {
+        await getRedis().set(cacheKey, JSON.stringify(result), 'EX', LLM_RESPONSE_CACHE_TTL);
+      } catch (e) {
+        /* ignore cache write errors */
+      }
+      return result;
+    } finally {
+      inFlightRequests.delete(cacheKey);
+    }
+  } catch (e) {
+    console.warn('LLM cache/coalesce error:', e?.message || e);
+    // fallback to direct call if caching/coalescing fails
+    // (call original logic without caching)
+    if (provider === 'openai') {
+      const client = getOpenAIClient();
+      const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+      const response = await client.responses.create({
+        model: modelToUse,
+        input: [
+          { role: 'system', content: buildSystemPrompt(repoName) },
+          { role: 'user', content: buildUserPrompt(question, retrievedChunks) },
+        ],
+        temperature: 0.1,
+        max_output_tokens: 2000,
+      });
+
+      return { answer: normalizeOpenAIText(response), tokensUsed: response.usage?.total_tokens || 0 };
+    }
+
+    const groq = getGroqClient();
+    const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+    const response = await groq.chat.completions.create({
+      model: modelToUse,
+      messages: [
+        { role: 'system', content: buildSystemPrompt(repoName) },
+        { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+      ],
+      temperature: 0.1,
+      max_tokens: 2000,
+    });
+
+    return { answer: response.choices[0].message.content, tokensUsed: response.usage?.total_tokens || 0 };
 };
 
 /**
@@ -97,8 +302,77 @@ const generateAnswer = async (question, retrievedChunks, repoName) => {
  * @returns AsyncIterable of text chunks
  */
 const streamAnswer = async function* (question, retrievedChunks, repoName) {
+  const provider = getPreferredProvider();
+
+  if (provider === 'openai') {
+    const client = getOpenAIClient();
+    const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+    try {
+      const response = await client.responses.create({
+        model: modelToUse,
+        input: [
+          { role: 'system', content: buildSystemPrompt(repoName) },
+          { role: 'user', content: buildUserPrompt(question, retrievedChunks) },
+        ],
+        temperature: 0.1,
+        max_output_tokens: 2000,
+      });
+
+      const text = normalizeOpenAIText(response);
+      if (text) yield text;
+      return;
+    } catch (err) {
+      const isQuota = err?.code === 'insufficient_quota' || (err?.status === 429) || /quota|insufficient/i.test(err?.message || '');
+      console.warn('OpenAI streaming failed:', err?.message || err);
+      if (isQuota && process.env.GROQ_API_KEY) {
+        console.log('Falling back to Groq streaming due to OpenAI quota/error');
+        const groq = getGroqClient();
+        const stream = await groq.chat.completions.create({
+          model: LLM_CHAT_MODEL || LLM_MODEL,
+          messages: [
+            { role: 'system', content: buildSystemPrompt(repoName) },
+            { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+          ],
+          temperature: 0.1,
+          max_tokens: 2000,
+          stream: true,
+        });
+
+        for await (const chunk of stream) {
+          const text = chunk.choices[0]?.delta?.content || '';
+          if (text) {
+            yield text;
+          }
+        }
+        return;
+      }
+
+      // If fallback model configured, attempt a non-stream retry
+      if (isQuota && process.env.LLM_FALLBACK_MODEL) {
+        try {
+          console.log('Retrying OpenAI streaming with fallback model (non-stream)');
+          const resp2 = await client.responses.create({
+            model: process.env.LLM_FALLBACK_MODEL,
+            input: [
+              { role: 'system', content: buildSystemPrompt(repoName) },
+              { role: 'user', content: buildUserPrompt(question, retrievedChunks) },
+            ],
+            temperature: 0.1,
+            max_output_tokens: 2000,
+          });
+          const text = normalizeOpenAIText(resp2);
+          if (text) yield text;
+          return;
+        } catch (err2) {
+          console.warn('Fallback model (non-stream) retry failed:', err2?.message || err2);
+        }
+      }
+
+      throw err;
+    }
+  }
+
   const groq = getGroqClient();
-  // Stream using chat-optimized model to save cost
   const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
 
   const stream = await groq.chat.completions.create({
@@ -292,35 +566,54 @@ const buildArchitectureContext = (retrievedChunks, fileTree) => {
  * @returns {{ mermaidCode: string, summary: string, tokensUsed: number }}
  */
 const generateArchitectureDiagram = async (retrievedChunks, repoName, diagramType, fileTree) => {
-  const groq = getGroqClient();
-  // Attempt LLM call, with optional fallback retry for model_not_found errors
+  const provider = getPreferredProvider();
+
   let response;
+  let fullAnswer = '';
+  let tokensUsed = 0;
+
   try {
-    response = await groq.chat.completions.create({
-      model: LLM_MODEL,
-      messages: [
-        { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
-        { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
-      ],
-      temperature: 0.15,
-      max_tokens: 3000,
-    });
+    if (provider === 'openai') {
+      const client = getOpenAIClient();
+      const modelToUse = LLM_MODEL || 'gpt-4o-mini';
+      response = await client.responses.create({
+        model: modelToUse,
+        input: [
+          { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
+          { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
+        ],
+        temperature: 0.15,
+        max_output_tokens: 3000,
+      });
+      fullAnswer = normalizeOpenAIText(response);
+      tokensUsed = response.usage?.total_tokens || 0;
+    } else {
+      const groq = getGroqClient();
+      response = await groq.chat.completions.create({
+        model: LLM_MODEL,
+        messages: [
+          { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
+          { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
+        ],
+        temperature: 0.15,
+        max_tokens: 3000,
+      });
+      fullAnswer = response.choices[0].message.content;
+      tokensUsed = response.usage?.total_tokens || 0;
+    }
   } catch (err) {
-    // If model not found, try fallback models if configured
-    const isModelNotFound = err && (err.status === 404 || (err.error && err.error.error && err.error.error.code === 'model_not_found') || (err.error && err.error.code === 'model_not_found'));
-    if (isModelNotFound) {
-      console.warn('LLM model not found:', LLM_MODEL, '— attempting fallback models');
+    if (provider === 'openai') {
+      console.warn('OpenAI architecture generation failed:', err.message || err);
+      const groq = getGroqClient();
       const fallbackCandidates = [];
       if (process.env.LLM_FALLBACK_MODEL) fallbackCandidates.push(process.env.LLM_FALLBACK_MODEL);
-      // Common alternative model names to try (only if not equal to primary)
       ['gpt-4o', 'gpt-4'].forEach((m) => {
         if (m && m !== LLM_MODEL) fallbackCandidates.push(m);
       });
 
       for (const candidate of fallbackCandidates) {
         try {
-          console.log('Trying fallback model:', candidate);
-          response = await groq.chat.completions.create({
+          const retryResponse = await groq.chat.completions.create({
             model: candidate,
             messages: [
               { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
@@ -329,25 +622,52 @@ const generateArchitectureDiagram = async (retrievedChunks, repoName, diagramTyp
             temperature: 0.15,
             max_tokens: 3000,
           });
-          console.log('Fallback model succeeded:', candidate);
+          fullAnswer = retryResponse.choices[0].message.content;
+          tokensUsed = retryResponse.usage?.total_tokens || 0;
           break;
         } catch (retryErr) {
           console.warn('Fallback model failed:', candidate, retryErr && retryErr.message ? retryErr.message : retryErr);
-          // continue to next candidate
         }
       }
     } else {
-      // Not a model-not-found error — rethrow for upstream handling
-      throw err;
+      const isModelNotFound = err && (err.status === 404 || (err.error && err.error.error && err.error.error.code === 'model_not_found') || (err.error && err.error.code === 'model_not_found'));
+      if (isModelNotFound) {
+        console.warn('LLM model not found:', LLM_MODEL, '— attempting fallback models');
+        const fallbackCandidates = [];
+        if (process.env.LLM_FALLBACK_MODEL) fallbackCandidates.push(process.env.LLM_FALLBACK_MODEL);
+        ['gpt-4o', 'gpt-4'].forEach((m) => {
+          if (m && m !== LLM_MODEL) fallbackCandidates.push(m);
+        });
+
+        for (const candidate of fallbackCandidates) {
+          try {
+            console.log('Trying fallback model:', candidate);
+            const retryResponse = await groq.chat.completions.create({
+              model: candidate,
+              messages: [
+                { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
+                { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
+              ],
+              temperature: 0.15,
+              max_tokens: 3000,
+            });
+            fullAnswer = retryResponse.choices[0].message.content;
+            tokensUsed = retryResponse.usage?.total_tokens || 0;
+            console.log('Fallback model succeeded:', candidate);
+            break;
+          } catch (retryErr) {
+            console.warn('Fallback model failed:', candidate, retryErr && retryErr.message ? retryErr.message : retryErr);
+          }
+        }
+      } else {
+        throw err;
+      }
     }
   }
 
-  if (!response) {
+  if (!fullAnswer) {
     throw new Error('LLM call failed and no fallback model succeeded');
   }
-
-  const fullAnswer = response.choices[0].message.content;
-  const tokensUsed = response.usage?.total_tokens || 0;
 
   const summaryMatch = fullAnswer.match(/\*\*Summary:\*\*\s*(.*)/);
   const summary = summaryMatch
@@ -392,4 +712,9 @@ const generateArchitectureDiagram = async (retrievedChunks, repoName, diagramTyp
   return { graph, summary, tokensUsed };
 };
 
-module.exports = { generateAnswer, streamAnswer, generateArchitectureDiagram };
+// Explicitly attach exports to avoid partial-export issues
+module.exports.generateAnswer = generateAnswer;
+module.exports.streamAnswer = streamAnswer;
+module.exports.generateArchitectureDiagram = generateArchitectureDiagram;
+
+}

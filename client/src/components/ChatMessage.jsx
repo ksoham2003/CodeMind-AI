@@ -1,9 +1,12 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check, User, Brain } from 'lucide-react';
+import ReactFlow from 'reactflow';
+import 'reactflow/dist/style.css';
 import './ChatMessage.css';
 
 function CodeBlock({ language, children }) {
@@ -48,6 +51,7 @@ function CodeBlock({ language, children }) {
 
 export default function ChatMessage({ message }) {
   const isUser = message.role === 'user';
+  const navigate = useNavigate();
 
   return (
     <div className={`chat-message ${isUser ? 'msg-user' : 'msg-ai'} animate-fade-up`}>
@@ -83,6 +87,8 @@ export default function ChatMessage({ message }) {
             </ReactMarkdown>
           </div>
         )}
+
+        {/* Architecture diagrams are no longer shown inline in chat messages. */}
 
         {message.timestamp && (
           <time className="msg-time" dateTime={message.timestamp}>

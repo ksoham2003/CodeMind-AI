@@ -32,9 +32,16 @@ api.interceptors.response.use(
       error.response?.data?.message ||
       error.message ||
       'An unexpected error occurred';
-    
-    // Check for unauthorized access
-    if (error.response?.status === 401) {
+
+    const isAuthPage = ['/login', '/signup'].includes(window.location.pathname);
+
+    // Check for unauthorized access only on protected routes; do not bounce auth pages back to login
+    if (error.response?.status === 401 && !isAuthPage) {
+      console.warn('[API] 401 Unauthorized - clearing token and redirecting', {
+        path: window.location.pathname,
+        status: error.response.status,
+        url: error.config?.url,
+      });
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
