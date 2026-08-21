@@ -2,6 +2,11 @@ const { v4: uuidv4 } = require('uuid');
 
 const MAX_CHUNK_CHARS = 6000; // ~1500 tokens — safe for embedding models
 
+// Chunking strategy: 'full' (default) indexes all eligible parsed nodes,
+// 'selective' only indexes high-value nodes (functions, methods, classes, exported symbols)
+const CHUNK_STRATEGY = (process.env.EMBED_CHUNK_STRATEGY || 'full').toLowerCase();
+const SELECTIVE_MIN_CHARS = parseInt(process.env.SELECTIVE_MIN_CHARS || '50', 10);
+
 /**
  * Convert parsed AST nodes into indexable chunks with rich metadata
  *
@@ -21,7 +26,18 @@ const buildChunks = (parsedNodes, repoId, repoName) => {
   for (const node of parsedNodes) {
     // Skip trivially small chunks (getters, 1-liners with no real content)
     const code = (node.code || '').trim();
-    if (code.length < 30) continue;
+
+    // If using selective strategy, only keep functions/methods/classes or
+    // explicitly exported/top-level modules. This reduces the number of
+    // embeddings dramatically while keeping high-signal code.
+    if (CHUNK_STRATEGY === 'selective') {
+      const keepTypes = new Set(['function', 'method', 'class', 'file', 'module']);
+      const isExported = Boolean(node.isExported || node.exported || node.isExport);
+      if (!keepTypes.has(node.type) && !isExported) continue;
+      if (code.length < SELECTIVE_MIN_CHARS) continue;
+    } else {
+      if (code.length < 30) continue;
+    }
 
     // If the code block is very large, split it into overlapping sub-chunks
     const subChunks = splitLargeChunk(code);

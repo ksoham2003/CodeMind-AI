@@ -93,7 +93,12 @@ const embedText = async (text) => {
 
 // Generic fetch with retry/backoff for transient network errors
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const fetchWithRetry = async (url, opts = {}, attempts = 5, baseDelay = 300) => {
+
+// Configurable via env vars for operational tuning
+const EMBED_RETRY_ATTEMPTS = parseInt(process.env.EMBED_RETRY_ATTEMPTS || '5', 10);
+const EMBED_RETRY_BASE_DELAY = parseInt(process.env.EMBED_RETRY_BASE_DELAY || '300', 10);
+
+const fetchWithRetry = async (url, opts = {}, attempts = EMBED_RETRY_ATTEMPTS, baseDelay = EMBED_RETRY_BASE_DELAY) => {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
