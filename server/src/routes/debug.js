@@ -26,4 +26,22 @@ router.get('/embeddings-metrics', async (req, res) => {
   }
 });
 
+router.get('/embeddings-cost', async (req, res) => {
+  try {
+    const metrics = await getEmbeddingMetrics();
+    // Allow operator to configure a per-1k embedding cost in USD
+    const costPer1k = parseFloat(process.env.EMBEDDING_COST_PER_1K_USD || '') || null;
+    let estimatedCostUsd = null;
+    if (costPer1k !== null) {
+      // Use total request count as proxy for number of embeddings generated
+      const totalRequests = parseInt(metrics.requests || 0, 10);
+      estimatedCostUsd = (totalRequests / 1000) * costPer1k;
+    }
+
+    res.json({ success: true, metrics, costPer1kUSD: costPer1k, estimatedCostUsd });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Failed to compute embedding costs', error: e.message });
+  }
+});
+
 module.exports = router;
