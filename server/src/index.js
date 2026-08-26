@@ -1,6 +1,12 @@
 require('dotenv').config();
 require('express-async-errors');
 
+// Fail fast on missing critical secrets
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  process.exit(1);
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -15,10 +21,21 @@ const sessionMiddleware = require('./middleware/sessionMiddleware');
 // Optionally start the worker in-process when START_WORKER=true
 if (process.env.START_WORKER === 'true') {
   try {
-    require('./workers/indexingWorker');
+    require('./workers/embedWorker');
+    require('./workers/batchQaWorker');
     console.log('Worker started in-process');
   } catch (err) {
     console.error('Failed to start worker in-process:', err);
+  }
+}
+
+// Optional metrics snapshotter (persist embedding metrics for dashboards)
+if (process.env.METRICS_SNAPSHOTTER_ENABLED === 'true') {
+  try {
+    const snapshotter = require('./services/metricsSnapshotter');
+    snapshotter.start();
+  } catch (err) {
+    console.warn('Failed to start metrics snapshotter:', err && err.message ? err.message : err);
   }
 }
 
@@ -34,6 +51,7 @@ const authRoutes = require('./routes/auth');
 const architectureRoutes = require('./routes/architecture');
 const jobsRoutes = require('./routes/jobs');
 const debugRoutes = require('./routes/debug');
+const embedRoutes = require('./routes/embed');
 const jwt = require('jsonwebtoken');
 
 // Controllers that need Socket.io injected
@@ -127,6 +145,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/architecture', architectureRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/debug', debugRoutes);
+app.use('/api/embed', embedRoutes);
 
 // Serving frontend build assets in production
 if (process.env.NODE_ENV === 'production') {
@@ -157,7 +176,7 @@ io.use((socket, next) => {
     return next(new Error('Authentication error'));
   }
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key_12345');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = decoded;
     next();
   } catch (err) {

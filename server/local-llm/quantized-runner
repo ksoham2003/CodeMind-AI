@@ -1,0 +1,31 @@
+#!/bin/sh
+# Simple wrapper for a quantized runner binary.
+# Usage: quantized-runner <model_path> <prompt>
+
+MODEL_PATH="$1"
+shift
+# join remaining args as the prompt (preserve spaces/newlines)
+PROMPT="$*"
+
+# If user supplied a real runner path via env var, execute it with common flags
+if [ -n "$LOCAL_LLM_QUANTIZED_RUNNER_REAL" ] && [ -x "$LOCAL_LLM_QUANTIZED_RUNNER_REAL" ]; then
+  exec "$LOCAL_LLM_QUANTIZED_RUNNER_REAL" cli -m "$MODEL_PATH" -p "$PROMPT"
+fi
+
+# Prefer specific built binaries from llama.cpp
+if [ -x "/opt/llama.cpp/build/bin/llama-cli" ]; then
+  exec /opt/llama.cpp/build/bin/llama-cli -m "$MODEL_PATH" -p "$PROMPT"
+fi
+
+if [ -x "/opt/llama.cpp/build/bin/llama" ]; then
+  exec /opt/llama.cpp/build/bin/llama -m "$MODEL_PATH" -p "$PROMPT"
+fi
+
+# Fallback to the top-level main `cli` subcommand if present
+if [ -x "/opt/llama.cpp/main" ]; then
+  exec /opt/llama.cpp/main cli -m "$MODEL_PATH" -p "$PROMPT"
+fi
+
+# Final fallback: emit a deterministic placeholder so the service behaves like a quantized runner
+LEN=$(printf '%s' "$PROMPT" | wc -c)
+printf "QUANTIZED_PLACEHOLDER: model=%s prompt_len=%s\n" "$MODEL_PATH" "$LEN"

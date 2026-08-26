@@ -1,0 +1,65 @@
+# Nginx Client Deployment + LoadBalancer Service
+# ============================================================
+# The Service type is set to LoadBalancer which works on:
+#   - Managed K8s (GKE, EKS, AKS) — gets a real public IP
+#   - Bare-metal with MetalLB installed
+#
+# For bare-metal without MetalLB, change type to NodePort and
+# access via http://<node-ip>:<nodePort>
+# ============================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codemind-client
+  namespace: codemind
+  labels:
+    app: codemind-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codemind-client
+  template:
+    metadata:
+      labels:
+        app: codemind-client
+    spec:
+      containers:
+        - name: client
+          image: codemindai-client:latest  # Built from ./client
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codemind-client
+  namespace: codemind
+spec:
+  type: LoadBalancer  # Change to NodePort for bare-metal without MetalLB
+  selector:
+    app: codemind-client
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+    # Uncomment to enable HTTPS (requires TLS termination at Nginx or Ingress):
+    # - port: 443
+    #   targetPort: 443
+    #   name: https

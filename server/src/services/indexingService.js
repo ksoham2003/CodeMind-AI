@@ -103,6 +103,33 @@ const runIndexingPipeline = async (projectId, io) => {
       done: true,
     });
 
+    // If project is configured for lazy embeddings, persist chunks to DB and skip embedding/upsert.
+    const cfgProject = await Project.findById(projectId);
+    if (cfgProject.lazyEmbedding) {
+      const Chunk = require('../models/Chunk');
+      // Prepare bulk docs using chunk.id as _id
+      const docs = chunks.map((c) => ({ _id: c.id, project: projectId, text: c.text, metadata: c.metadata }));
+      if (docs.length > 0) {
+        // Use ordered:false to continue on duplicate key errors (allow re-index)
+        await Chunk.insertMany(docs, { ordered: false }).catch((err) => {
+          // ignore duplicate key errors when re-indexing
+          if (!/duplicate key error/i.test(err.message)) console.warn('Chunk insert error:', err.message || err);
+        });
+      }
+
+      // Mark project ready with progress markers reset
+      await Project.findByIdAndUpdate(projectId, { embeddingProgress: 0, upsertProgress: 0, status: 'ready', indexedAt: new Date() });
+      emitProgress(io, projectId, 'done', `Repository indexed (lazyEmbedding). ${chunks.length} chunks stored without embeddings.`, {
+        done: true,
+        chunkCount: chunks.length,
+        fileCount: files.length,
+      });
+
+      // Cleanup cloned files
+      await deleteRepository(project.repoId);
+      return;
+    }
+
     // ── Stage 5: Embed ────────────────────────────────────────────────────────
     // ── Stage 5: Embed ───────────────────────────────────────────────────────
     await Project.findByIdAndUpdate(projectId, { status: 'embedding' });

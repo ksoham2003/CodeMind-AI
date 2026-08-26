@@ -2,7 +2,9 @@ const Groq = require('groq-sdk');
 const OpenAI = require('openai');
 const { getRedis } = require('../config/redis');
 const crypto = require('crypto');
+const localLlm = require('./localLlmService');
 
+// Lazy-initialized singleton clients
 let groqClient = null;
 let openaiClient = null;
 
@@ -27,63 +29,37 @@ const getOpenAIClient = () => {
 };
 
 const normalizeOpenAIText = (response) => {
+  if (response == null) return '';
   if (response.output_text) return response.output_text;
 
   const output = response.output || [];
   const combined = [];
 
   for (const item of output) {
+    if (item == null) continue;
     if (item.type === 'message' && Array.isArray(item.content)) {
       for (const part of item.content) {
+        if (!part) continue;
         if (part.type === 'output_text' || part.type === 'text') {
           combined.push(part.text || part.value || '');
         }
       }
+    } else if (item.type === 'output_text' || item.type === 'text') {
+      combined.push(item.text || item.value || '');
     }
   }
 
-  return combined.join('\n').trim();
+  return combined.join('');
 };
 
-const getPreferredProvider = () => {
-  // Allow explicit override via LLM_PROVIDER env var: 'openai' | 'groq'
-  if (process.env.LLM_PROVIDER) {
-    const p = process.env.LLM_PROVIDER.toLowerCase();
-    if (p === 'openai') {
-      if (!process.env.OPENAI_API_KEY) throw new Error('LLM_PROVIDER=openai but OPENAI_API_KEY is not set.');
-      return 'openai';
-    }
-    if (p === 'groq') {
-      if (!process.env.GROQ_API_KEY) throw new Error('LLM_PROVIDER=groq but GROQ_API_KEY is not set.');
-      return 'groq';
-    }
-    throw new Error(`Unknown LLM_PROVIDER=${process.env.LLM_PROVIDER}`);
-  }
-  // Respect an explicit fallback priority list if provided.
-  // Example: LLM_FALLBACK_PRIORITY="openai,groq,gemini"
-  if (process.env.LLM_FALLBACK_PRIORITY) {
-    const order = process.env.LLM_FALLBACK_PRIORITY.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    for (const candidate of order) {
-      if (candidate === 'openai' && process.env.OPENAI_API_KEY) return 'openai';
-      if (candidate === 'groq' && process.env.GROQ_API_KEY) return 'groq';
-      if (candidate === 'gemini' && process.env.GEMINI_API_KEY) return 'gemini';
-    }
-  }
-
-  // Default behavior: prefer OpenAI, then Groq, then Gemini
-  if (process.env.OPENAI_API_KEY) return 'openai';
-  if (process.env.GROQ_API_KEY) return 'groq';
-  if (process.env.GEMINI_API_KEY) return 'gemini';
-  throw new Error('No LLM API key configured. Set OPENAI_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY.');
-};
-
-// LLM model can be overridden via environment variable `LLM_MODEL`.
-// Default to a mainstream model that is commonly available if not set.
-const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
-// Prefer a cheaper chat model by default to reduce conversational costs; env overrides still apply
 const LLM_CHAT_MODEL = process.env.LLM_CHAT_MODEL || process.env.LLM_MODEL || 'gpt-3.5-turbo';
 const MAX_CONTEXT_CHUNKS = 8;
 const MAX_CONTEXT_CHARS = 12000;
+
+const getPreferredProvider = () => {
+  if (process.env.LOCAL_LLM_ENABLED === 'true') return 'local';
+  return (process.env.LLM_PROVIDER || (process.env.OPENAI_API_KEY ? 'openai' : (process.env.GROQ_API_KEY ? 'groq' : 'none'))).toLowerCase();
+};
 
 /**
  * Build the RAG system prompt
@@ -161,6 +137,54 @@ const generateAnswer = async (question, retrievedChunks, repoName) => {
     }
 
     const promise = (async () => {
+        // Local provider handling with fallbacks
+        if (provider === 'local') {
+          const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+          const prompt = buildSystemPrompt(repoName) + '\n\n' + buildUserPrompt(question, retrievedChunks);
+          try {
+            const j = await localLlm.generate(prompt, { model: modelToUse, temperature: 0.1 });
+            return { answer: j.text || j.output || '', tokensUsed: j.tokens || 0 };
+          } catch (localErr) {
+            console.warn('Local LLM call failed:', localErr && localErr.message ? localErr.message : localErr);
+            // Try configured fallback order (env or defaults)
+            const fallbacks = (process.env.LLM_FALLBACK_PRIORITY || 'openai,groq,gemini').split(',').map(s => s.trim()).filter(Boolean);
+            for (const candidate of fallbacks) {
+              try {
+                if (candidate === 'openai' && process.env.OPENAI_API_KEY) {
+                  const client = getOpenAIClient();
+                  const resp = await client.responses.create({
+                    model: LLM_CHAT_MODEL || LLM_MODEL,
+                    input: [
+                      { role: 'system', content: buildSystemPrompt(repoName) },
+                      { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+                    ],
+                    temperature: 0.1,
+                    max_output_tokens: 2000,
+                  });
+                  return { answer: normalizeOpenAIText(resp), tokensUsed: resp.usage?.total_tokens || 0 };
+                }
+
+                if (candidate === 'groq' && process.env.GROQ_API_KEY) {
+                  const groq = getGroqClient();
+                  const response = await groq.chat.completions.create({
+                    model: LLM_CHAT_MODEL || LLM_MODEL,
+                    messages: [
+                      { role: 'system', content: buildSystemPrompt(repoName) },
+                      { role: 'user', content: buildUserPrompt(question, retrievedChunks) }
+                    ],
+                    temperature: 0.1,
+                    max_tokens: 2000,
+                  });
+                  return { answer: response.choices[0].message.content, tokensUsed: response.usage?.total_tokens || 0 };
+                }
+              } catch (fbErr) {
+                console.warn('Fallback candidate failed:', candidate, fbErr && fbErr.message ? fbErr.message : fbErr);
+              }
+            }
+            // If all fallbacks failed, rethrow local error
+            throw localErr;
+          }
+        }
       // Original generation logic follows
       if (provider === 'openai') {
         const client = getOpenAIClient();
@@ -292,6 +316,7 @@ const generateAnswer = async (question, retrievedChunks, repoName) => {
     });
 
     return { answer: response.choices[0].message.content, tokensUsed: response.usage?.total_tokens || 0 };
+  }
 };
 
 /**
@@ -303,6 +328,21 @@ const generateAnswer = async (question, retrievedChunks, repoName) => {
  */
 const streamAnswer = async function* (question, retrievedChunks, repoName) {
   const provider = getPreferredProvider();
+
+  // If local provider is preferred, try it first and fall back on error
+  if (provider === 'local') {
+    const modelToUse = LLM_CHAT_MODEL || LLM_MODEL;
+    const prompt = buildSystemPrompt(repoName) + '\n\n' + buildUserPrompt(question, retrievedChunks);
+    try {
+      for await (const chunk of localLlm.stream(prompt, { model: modelToUse, temperature: 0.1 })) {
+        yield chunk;
+      }
+      return;
+    } catch (localErr) {
+      console.warn('Local LLM streaming failed:', localErr && localErr.message ? localErr.message : localErr);
+      // fall through to external providers
+    }
+  }
 
   if (provider === 'openai') {
     const client = getOpenAIClient();
@@ -712,9 +752,9 @@ const generateArchitectureDiagram = async (retrievedChunks, repoName, diagramTyp
   return { graph, summary, tokensUsed };
 };
 
-// Explicitly attach exports to avoid partial-export issues
-module.exports.generateAnswer = generateAnswer;
-module.exports.streamAnswer = streamAnswer;
-module.exports.generateArchitectureDiagram = generateArchitectureDiagram;
-
-}
+// Explicit exports
+module.exports = {
+  generateAnswer,
+  streamAnswer,
+  generateArchitectureDiagram,
+};

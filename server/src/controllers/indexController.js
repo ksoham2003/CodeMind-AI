@@ -4,6 +4,7 @@ const { runIndexingPipeline } = require('../services/indexingService');
 // Store reference to the Socket.io server (injected at startup)
 let ioInstance = null;
 const setIo = (io) => { ioInstance = io; };
+const getIo = () => ioInstance;
 
 /**
  * POST /api/index/start
@@ -78,4 +79,4 @@ const getIndexingStatus = async (req, res) => {
   res.json({ success: true, project });
 };
 
-module.exports = { startIndexing, getIndexingStatus, retryIndexing, setIo };
+module.exports = { startIndexing, getIndexingStatus, retryIndexing, setIo, getIo };

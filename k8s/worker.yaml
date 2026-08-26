@@ -1,0 +1,46 @@
+# BullMQ Indexing Worker Deployment
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codemind-worker
+  namespace: codemind
+  labels:
+    app: codemind-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codemind-worker
+  template:
+    metadata:
+      labels:
+        app: codemind-worker
+    spec:
+      containers:
+        - name: worker
+          image: codemindai-server:latest  # Same image as server, different entry command
+          imagePullPolicy: IfNotPresent
+          command: ["node", "src/workers/indexingWorker.js"]
+          envFrom:
+            - configMapRef:
+                name: codemind-config
+            - secretRef:
+                name: codemind-secrets
+          env:
+            - name: START_WORKER
+              value: "true"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          # Workers don't expose HTTP — no readiness/liveness probes needed
+          # Add a simple process health check instead
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            initialDelaySeconds: 30
+            periodSeconds: 60

@@ -1,0 +1,85 @@
+# Embedding Server Deployment + Service + PVC (model cache)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedding-model-pvc
+  namespace: codemind
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi  # Cache for sentence-transformers model files
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codemind-embedding
+  namespace: codemind
+  labels:
+    app: codemind-embedding
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codemind-embedding
+  template:
+    metadata:
+      labels:
+        app: codemind-embedding
+    spec:
+      containers:
+        - name: embedding-server
+          image: codemindai-embedding-server:latest  # Built from ./embedding-server
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: EMBEDDING_MODEL_NAME
+              value: "all-MiniLM-L6-v2"
+            - name: HF_HOME
+              value: "/model-cache"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedding-model-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codemind-embedding
+  namespace: codemind
+spec:
+  selector:
+    app: codemind-embedding
+  ports:
+    - port: 8000
+      targetPort: 8000

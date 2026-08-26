@@ -44,7 +44,10 @@ const visualizeArchitecture = async (req, res) => {
     const queryVector = await embedText(queryText);
 
     // Fetch more chunks than usual to get a broad view
-    const matches = await querySimilar(queryVector, project.repoId, 20);
+    // Support optional filters/boosts to narrow or prioritize results for architecture generation
+    const clientFilters = req.body.filters || undefined;
+    const clientBoosts = req.body.boosts || undefined;
+    const matches = await querySimilar(queryVector, project.repoId, 20, { filters: clientFilters, boosts: clientBoosts });
 
     if (matches.length === 0) {
       return res.json({

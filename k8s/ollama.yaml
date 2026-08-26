@@ -1,0 +1,159 @@
+# Ollama Deployment + Service + PVC (model weights)
+# ============================================================
+# HARDWARE NOTE:
+#   qwen3-coder:30b (Q4_K_M) requires ~19GB of storage and:
+#   - GPU mode: NVIDIA GPU with 22GB+ VRAM (recommended)
+#   - CPU mode: 24GB+ system RAM (slow, ~5-8 tok/s)
+#
+# GPU MODE (recommended):
+#   1. Install NVIDIA device plugin:
+#      kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.16.0/deployments/static/nvidia-device-plugin.yml
+#   2. Uncomment the "GPU mode" section below and comment out "CPU mode".
+#
+# CPU MODE (no changes needed — runs as-is):
+#   Responses will be 10–20s. Not recommended for production.
+# ============================================================
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: codemind
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 25Gi  # qwen3-coder:30b is ~19GB; leave headroom for other models
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codemind-ollama
+  namespace: codemind
+  labels:
+    app: codemind-ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codemind-ollama
+  template:
+    metadata:
+      labels:
+        app: codemind-ollama
+    spec:
+      # ---- INIT CONTAINER: pull the model on first boot ----
+      initContainers:
+        - name: ollama-pull
+          image: ollama/ollama:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Start the Ollama server in background, then pull the model
+              ollama serve &
+              OLLAMA_PID=$!
+              # Wait until the server is ready
+              until ollama list > /dev/null 2>&1; do
+                echo "Waiting for Ollama to start..."
+                sleep 2
+              done
+              echo "Ollama ready. Pulling qwen3-coder:30b..."
+
+              ollama pull qwen3-coder:30b
+              echo "Model pull complete."
+              kill $OLLAMA_PID
+          env:
+            - name: OLLAMA_MODELS
+              value: "/models"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /models
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+
+      # ---- MAIN CONTAINER: serve the model ----
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          command: ["ollama", "serve"]
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_MODELS
+              value: "/models"
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            # Uncomment to limit context window (reduces RAM usage):
+            # - name: OLLAMA_NUM_CTX
+            #   value: "32768"
+
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /models
+
+          # ---- CPU MODE (default) ----
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "8Gi"
+              cpu: "4000m"
+
+          # ---- GPU MODE (uncomment + remove CPU mode above) ----
+          # resources:
+          #   requests:
+          #     memory: "4Gi"
+          #     cpu: "2000m"
+          #     nvidia.com/gpu: 1
+          #   limits:
+          #     memory: "8Gi"
+          #     cpu: "4000m"
+          #     nvidia.com/gpu: 1
+
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 20
+
+      # ---- GPU NODE SELECTOR (uncomment for GPU mode) ----
+      # nodeSelector:
+      #   accelerator: nvidia-gpu
+      # tolerations:
+      #   - key: nvidia.com/gpu
+      #     operator: Exists
+      #     effect: NoSchedule
+
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codemind-ollama
+  namespace: codemind
+spec:
+  selector:
+    app: codemind-ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      name: ollama-api

@@ -7,3 +7,5 @@ build/
 temp/
 uploads/
 .vite/
+
+k8s/secret.yaml

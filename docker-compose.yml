@@ -63,6 +63,27 @@ services:
     depends_on:
       - redis
 
+  # Ollama — serves qwen3-coder:30b via OpenAI-compatible API
+  # On first start this will pull the model (~19GB). This can take 10–20 minutes.
+  local-llm:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_MODELS=/models
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama_models:/models
+    # Pull the model on container start (skips if already cached)
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        until ollama list > /dev/null 2>&1; do sleep 2; done
+        ollama pull qwen3-coder:30b
+        wait
+
   client:
     build:
       context: ./client
@@ -76,3 +97,4 @@ services:
 
 volumes:
   mongo_data:
+  ollama_models:  # Persists qwen3-coder:30b weights across container restarts (~19GB)

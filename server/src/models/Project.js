@@ -47,6 +47,8 @@ const projectSchema = new mongoose.Schema(
     // Progress markers to allow resuming failed indexing runs
     embeddingProgress: { type: Number, default: 0 },
     upsertProgress: { type: Number, default: 0 },
+    // When true, chunks are stored without embeddings and embeddings are generated on-demand
+    lazyEmbedding: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
