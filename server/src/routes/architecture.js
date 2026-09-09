@@ -1,10 +1,13 @@
 const express = require('express');
+const { visualizeArchitecture, getArchitecture } = require('../controllers/architectureController');
+const { protect: authMiddleware } = require('../middleware/authMiddleware');
+
 const router = express.Router();
-const { visualizeArchitecture } = require('../controllers/architectureController');
-const { protect } = require('../middleware/authMiddleware');
 
-router.use(protect);
+// POST /api/architecture/visualize - Generate architecture diagram
+router.post('/visualize', authMiddleware, visualizeArchitecture);
 
-router.post('/visualize', visualizeArchitecture);
+// GET /api/architecture/:projectId - Get existing architecture
+router.get('/:projectId', authMiddleware, getArchitecture);
 
 module.exports = router;

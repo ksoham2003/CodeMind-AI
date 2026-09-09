@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api',
-  timeout: 120000, // 2 minutes (cloning can be slow)
+  timeout: 300000, // 5 minutes (large local models like qwen3-coder:30b can be slow on CPU)
   headers: { 'Content-Type': 'application/json' },
 });
 

@@ -5,8 +5,8 @@
   "main": "server/src/index.js",
   "scripts": {
     "install-all": "npm install --include=dev --prefix client && npm install --prefix server",
-    "build-client": "npm run build --prefix client",
-    "build": "npm run install-all && npm run build-client",
-    "start": "node server/src/index.js"
+    "build-client": "node init && npm run build --prefix client",
+    "build": "node init && npm run install-all && npm run build-client",
+    "start": "node init && node server/src/index.js"
   }
 }

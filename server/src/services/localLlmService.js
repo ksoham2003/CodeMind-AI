@@ -1,7 +1,7 @@
 const fetch = global.fetch || require('node-fetch');
 
 const LOCAL_LLM_URL = (process.env.LOCAL_LLM_URL || 'http://local-llm:11434').replace(/\/$/, '');
-const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || 'qwen3-coder:30b';
+const LOCAL_LLM_MODEL = process.env.LOCAL_LLM_MODEL || 'qwen2.5-coder:3b';
 
 /**
  * Generate text from an Ollama server via the OpenAI-compatible API.
@@ -12,6 +12,10 @@ const generate = async (prompt, opts = {}) => {
   const model = opts.model || LOCAL_LLM_MODEL;
   const temperature = opts.temperature ?? 0.1;
 
+  const controller = new AbortController();
+  // 4.5 minutes — gives large models time to respond while staying under the 5-min client timeout
+  const timeout = setTimeout(() => controller.abort(), 270000);
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -21,7 +25,9 @@ const generate = async (prompt, opts = {}) => {
       temperature,
       stream: false,
     }),
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');

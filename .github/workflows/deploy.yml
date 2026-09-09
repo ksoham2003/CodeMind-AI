@@ -1,0 +1,152 @@
+name: CI/CD — Build & Deploy to AWS EKS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: codemind-cluster
+  DOCKER_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/codemindai
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. Build & push all images
+  # ─────────────────────────────────────────────
+  build:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.DOCKER_REPO }}-server:${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_REPO }}-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push client
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.DOCKER_REPO }}-client:${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_REPO }}-client:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push worker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.DOCKER_REPO }}-worker:${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_REPO }}-worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push embedding-server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./embedding-server
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.DOCKER_REPO }}-embedding:${{ steps.meta.outputs.tag }}
+            ${{ env.DOCKER_REPO }}-embedding:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─────────────────────────────────────────────
+  # 2. Deploy to EKS (only on main branch push)
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to AWS EKS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER }}
+
+      - name: Deploy namespace & config
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmap.prod.yaml
+
+      - name: Apply AWS Secrets (from GitHub Secrets)
+        run: |
+          kubectl create secret generic codemind-secrets \
+            --namespace codemind \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            --from-literal=GITHUB_TOKEN="${{ secrets.APP_GITHUB_TOKEN }}" \
+            --from-literal=PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
+            --from-literal=PINECONE_INDEX_NAME="${{ secrets.PINECONE_INDEX_NAME }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update image tags in manifests
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          REPO: ${{ env.DOCKER_REPO }}
+        run: |
+          sed -i "s|IMAGE_SERVER|${REPO}-server:${TAG}|g" k8s/server.prod.yaml
+          sed -i "s|IMAGE_CLIENT|${REPO}-client:${TAG}|g" k8s/client.prod.yaml
+          sed -i "s|IMAGE_WORKER|${REPO}-worker:${TAG}|g" k8s/worker.prod.yaml
+
+      - name: Deploy infrastructure (Redis)
+        run: kubectl apply -f k8s/redis.yaml
+
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s/server.prod.yaml
+          kubectl apply -f k8s/client.prod.yaml
+          kubectl apply -f k8s/worker.prod.yaml
+
+      - name: Deploy Ingress + HPA
+        run: |
+          kubectl apply -f k8s/ingress.yaml
+          kubectl apply -f k8s/hpa.yaml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/codemind-server -n codemind --timeout=120s
+          kubectl rollout status deployment/codemind-client -n codemind --timeout=120s
+          kubectl rollout status deployment/codemind-worker -n codemind --timeout=120s
+
+      - name: Get service endpoint
+        run: kubectl get ingress -n codemind

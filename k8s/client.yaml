@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: client
-          image: codemindai-client:latest  # Built from ./client
+          image: codemindai-client:v10  # Built from ./client
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80

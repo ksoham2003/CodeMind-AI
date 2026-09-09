@@ -25,5 +25,6 @@ export const chatService = {
 export const architectureService = {
   visualize: (projectId, diagramType = 'component') =>
     api.post('/architecture/visualize', { projectId, diagramType }),
+  get: (projectId) => api.get(`/architecture/${projectId}`),
 };
 

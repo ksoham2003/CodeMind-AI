@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: codemindai-server:latest  # Same image as server, different entry command
+          image: codemindai-server:v13  # Worker uses the same server image with START_WORKER=true
           imagePullPolicy: IfNotPresent
           command: ["node", "src/workers/indexingWorker.js"]
           envFrom:
@@ -30,6 +30,8 @@ spec:
           env:
             - name: START_WORKER
               value: "true"
+            - name: NODE_OPTIONS
+              value: "--dns-result-order=ipv4first"
           resources:
             requests:
               memory: "512Mi"

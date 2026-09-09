@@ -20,7 +20,7 @@ metadata:
   labels:
     app: codemind-embedding
 spec:
-  replicas: 1
+  replicas: 0  # Disabled: using Ollama for embeddings (EMBEDDING_PROVIDER=ollama)
   selector:
     matchLabels:
       app: codemind-embedding

@@ -1,0 +1,46 @@
+# BullMQ Indexing Worker — Production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codemind-worker
+  namespace: codemind
+  labels:
+    app: codemind-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codemind-worker
+  template:
+    metadata:
+      labels:
+        app: codemind-worker
+    spec:
+      containers:
+        - name: worker
+          image: IMAGE_WORKER  # Replaced by CI/CD — same server image with START_WORKER=true
+          imagePullPolicy: Always
+          command: ["node", "src/workers/indexingWorker.js"]
+          envFrom:
+            - configMapRef:
+                name: codemind-config
+            - secretRef:
+                name: codemind-secrets
+          env:
+            - name: START_WORKER
+              value: "true"
+            - name: NODE_OPTIONS
+              value: "--dns-result-order=ipv4first"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            initialDelaySeconds: 30
+            periodSeconds: 60

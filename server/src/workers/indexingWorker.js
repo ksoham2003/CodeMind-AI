@@ -1,6 +1,5 @@
 const { Worker } = require('bullmq');
 const url = require('url');
-const { generateArchitectureDiagram } = require('../services/llmService');
 // Add other services as needed: indexingService, embeddingService
 
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
@@ -19,17 +18,6 @@ const worker = new Worker(
   async (job) => {
     console.log(`Worker processing job ${job.id} type=${job.name}`);
     try {
-      if (job.name === 'generate-architecture') {
-        const { retrievedChunks, repoName, diagramType, fileTree } = job.data;
-        const { graph, summary, tokensUsed } = await generateArchitectureDiagram(
-          retrievedChunks,
-          repoName,
-          diagramType,
-          fileTree
-        );
-        return { graph, summary, tokensUsed };
-      }
-
       if (job.name === 'index-repo') {
         // Placeholder: call indexing service to process repository
         // const result = await indexingService.indexRepository(job.data);
