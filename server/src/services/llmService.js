@@ -3,6 +3,7 @@ const OpenAI = require('openai');
 const { getRedis } = require('../config/redis');
 const crypto = require('crypto');
 const localLlm = require('./localLlmService');
+const { analyzeArchitecture } = require('./architectureAnalyzer');
 
 // Lazy-initialized singleton clients
 let groqClient = null;
@@ -53,6 +54,7 @@ const normalizeOpenAIText = (response) => {
 };
 
 const LLM_CHAT_MODEL = process.env.LLM_CHAT_MODEL || process.env.LLM_MODEL || 'gpt-3.5-turbo';
+const LLM_MODEL = process.env.LLM_MODEL || 'gpt-3.5-turbo';
 const MAX_CONTEXT_CHUNKS = 8;
 const MAX_CONTEXT_CHARS = 12000;
 
@@ -435,322 +437,210 @@ const streamAnswer = async function* (question, retrievedChunks, repoName) {
 };
 
 /**
- * Architecture diagram prompt templates per type
+ * Generate an architecture diagram from code chunks.
+ *
+ * NEW PIPELINE (static-analysis first):
+ *   chunks
+ *     → architectureAnalyzer  (pure static analysis, no LLM)
+ *     → ArchitectureFacts JSON (layers, technologies, dependencies)
+ *     → Ollama prompt with FACTS (not raw code)
+ *     → LLM returns structured architecture JSON
+ *     → buildGraphFromArchJSON converts to React Flow nodes/edges
  */
-const ARCHITECTURE_PROMPTS = {
-  component: `Analyze the code context and generate a Mermaid diagram showing the COMPONENT HIERARCHY of this codebase.
+const generateArchitectureDiagram = async (chunks, projectId, diagramType = 'component') => {
+  if (!chunks || chunks.length === 0) {
+    return { success: false, message: 'No code chunks found for analysis' };
+  }
+
+  try {
+    // ── Step 1: Static analysis ──────────────────────────────────────────
+    console.log(`🔍 Running static analysis on ${chunks.length} chunks...`);
+    const facts = analyzeArchitecture(chunks);
+    console.log(`📊 Facts: ${facts.filesAnalyzed} files, ${facts.technologies.length} technologies, ${facts.layerDependencies.length} layer deps`);
+
+    // ── Step 2: Build LLM prompt from structured facts (NOT raw code) ────
+    const factsPrompt = `You are a software architecture expert. Based on the following static analysis facts from a codebase, generate a highly detailed ${diagramType} diagram.
+
+STATIC ANALYSIS FACTS:
+${JSON.stringify(facts, null, 2)}
+
+Based on these facts, return a JSON object with this exact structure (no other text):
+{
+  "pattern": "<architecture pattern e.g. Layered Architecture, Component-Based, MVC, etc>",
+  "components": ["<specific component/file name>", ...],
+  "relationships": [["<from component/file>", "<to component/file>"], ...],
+  "dataflow": "<brief description of main data flow>"
+}
 
 Rules:
-- Use "graph TD" (top-down) syntax
-- Show parent → child component relationships
-- Include page components, layout components, and reusable UI components
-- Label edges with the relationship using Mermaid vertical bar format: A -->|renders| B. DO NOT use colons (e.g. A --> B : renders) and DO NOT append extra characters like A -->|renders|>.
-- Use subgraphs to group by feature area or directory
-- DO NOT draw link/connection lines directly to or from subgraph names (e.g. DO NOT draw "Frontend" --> "Backend"). Subgraphs should only structure the groups; draw connections between internal leaf nodes instead.
-- Give each node a short readable label, use the actual component/module names
-- Quote ALL node names/labels that contain special characters like parentheses, slashes, or dots (e.g., use "app.js" --> "App.jsx" instead of app.js --> App.jsx)
-- Do NOT use parentheses in node IDs — only in quoted labels
-- Keep the diagram focused and readable (max ~30 nodes)`,
+- DO NOT generalize the entire codebase into just "Frontend" and "Backend". 
+- Components MUST be the specific files, modules, or layers found in the facts (e.g., "ImageClipHandler", "useShapeKeypointGesture", "BaseShapeElement", "Controllers").
+- For a ${diagramType} diagram, focus on the relationships between these specific files/modules.
+- Include at least 5-10 specific nodes based on the provided files in the facts.
+- Return ONLY the JSON object, no markdown, no explanation`;
 
-  dependency: `Analyze the code context and generate a Mermaid diagram showing the FILE DEPENDENCY GRAPH.
 
-Rules:
-- Use "graph LR" (left-right) syntax
-- Show which files import/require which other files
-- Group files by directory using subgraphs
-- Use arrows from importer → imported module with a relationship label: A -->|imports| B. DO NOT use colons (e.g. A --> B : imports) and DO NOT append extra characters like A -->|imports|>.
-- DO NOT draw link/connection lines directly to or from subgraph names (e.g. DO NOT draw "Frontend" --> "Backend"). Connect internal leaf nodes instead.
-- Include key npm packages as external nodes (styled differently)
-- Quote ALL node names/labels that contain special characters like parentheses, slashes, or dots (e.g., use "app.js" --> "App.jsx" instead of app.js --> App.jsx)
-- Do NOT use parentheses in node IDs — only in quoted labels
-- Keep the diagram focused on the most important ~25 files`,
+    // ── Step 3: Ask LLM to interpret facts ───────────────────────────────
+    const provider = getPreferredProvider();
+    const modelToUse = LLM_MODEL;
+    let rawResponse = '';
 
-  'api-routes': `Analyze the code context and generate a Mermaid diagram showing the API ROUTE FLOW.
+    if (provider === 'local') {
+      const result = await localLlm.generate(factsPrompt, { model: modelToUse, temperature: 0.1 });
+      rawResponse = result.text || result.output || '';
+    } else if (provider === 'groq') {
+      const groq = getGroqClient();
+      const result = await groq.chat.completions.create({
+        model: modelToUse,
+        messages: [{ role: 'user', content: factsPrompt }],
+        temperature: 0.1,
+        max_tokens: 1000,
+      });
+      rawResponse = result.choices[0]?.message?.content || '';
+    } else if (provider === 'openai') {
+      const openai = getOpenAIClient();
+      const result = await openai.chat.completions.create({
+        model: modelToUse,
+        messages: [{ role: 'user', content: factsPrompt }],
+        temperature: 0.1,
+        max_tokens: 1000,
+      });
+      rawResponse = result.choices[0]?.message?.content || '';
+    } else {
+      // No LLM — build graph directly from static analysis facts
+      rawResponse = buildArchJsonFromFacts(facts);
+    }
 
-Rules:
-- Use "graph LR" (left-right) syntax
-- Show: HTTP Method + Path → Route Handler → Controller → Service → Database/External
-- Use subgraphs for Route Groups, Controllers, Services, and Data layers
-- Include middleware in the flow when relevant
-- Label edges with HTTP methods using vertical bars: A -->|GET| B. DO NOT use colons (e.g. A --> B : GET) and DO NOT append extra characters like A -->|GET|>.
-- DO NOT draw link/connection lines directly to or from subgraph names (e.g. DO NOT draw "Frontend" --> "Backend"). Connect internal leaf nodes instead.
-- Quote ALL node names/labels that contain special characters like parentheses, slashes, or dots (e.g., use "app.js" --> "App.jsx" instead of app.js --> App.jsx)
-- Do NOT use parentheses in node IDs — only in quoted labels
-- Keep the diagram focused and readable`,
+    // ── Step 4: Parse LLM JSON response ──────────────────────────────────
+    let archJson = null;
+    try {
+      // Strip markdown code blocks if present
+      const jsonStr = rawResponse
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+      // Find the first {...} block
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) archJson = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.warn('⚠️  LLM did not return valid JSON, falling back to static analysis graph');
+    }
+
+    // Fallback: build directly from static facts if LLM response is unusable
+    if (!archJson || !archJson.components || archJson.components.length === 0) {
+      archJson = buildArchJsonFromFacts(facts);
+    }
+
+    // ── Step 5: Convert architecture JSON → React Flow graph ─────────────
+    const graph = buildGraphFromArchJson(archJson);
+
+    const layerNames = Object.keys(facts.layers).filter((l) => l !== 'other' && l !== 'tests');
+    return {
+      success: true,
+      graph,
+      facts,           // expose raw facts for debugging / future use
+      archJson,        // expose interpreted JSON
+      pattern: archJson.pattern || 'Unknown',
+      dataflow: archJson.dataflow || '',
+      summary: `${archJson.pattern || 'Architecture'} — ${facts.filesAnalyzed} files across [${layerNames.join(', ')}] using ${facts.technologies.slice(0, 4).join(', ')}`,
+      diagramType,
+      tokensUsed: rawResponse.split(/\s+/).length,
+    };
+
+  } catch (error) {
+    console.error('❌ Architecture generation error:', error.message);
+    return { success: false, message: error.message };
+  }
 };
 
-const parseMermaidGraph = (mermaidCode) => {
-  const lines = mermaidCode
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+/**
+ * Build a minimal architecture JSON directly from static analysis facts
+ * (used as fallback when LLM returns garbage).
+ */
+function buildArchJsonFromFacts(facts) {
+  const components = [];
+  const relationships = [];
 
-  const directionMatch = lines[0]?.match(/^graph\s+(LR|RL|TD|BT)/i);
-  const direction = directionMatch?.[1]?.toUpperCase() || 'LR';
+  // Map known layers to human-readable component names
+  const layerToComponent = {
+    pages: 'Frontend Pages',
+    components: 'UI Components',
+    hooks: 'Frontend Hooks',
+    routes: 'API Routes',
+    controllers: 'Controllers',
+    services: 'Services',
+    models: 'Data Models',
+    workers: 'Background Workers',
+    middleware: 'Middleware',
+    config: 'Configuration',
+  };
 
-  const nodeMap = new Map();
-  const edges = [];
-  const connectionRegex = /^(?:"([^"]+)"|([^"\s\[]+))(?:\[(?:"([^"]+)"|([^"\]]+))\])?\s*([-.]+>+|-->|==>)\s*(?:\|([^|]+)\|\s*)?(?:"([^"]+)"|([^"\s\[]+))(?:\[(?:"([^"]+)"|([^"\]]+))\])?$/;
+  const presentLayers = Object.keys(facts.layers).filter((l) => l !== 'other' && l !== 'tests');
+  for (const layer of presentLayers) {
+    const label = layerToComponent[layer] || layer;
+    if (!components.includes(label)) components.push(label);
+  }
 
-  for (const line of lines.slice(1)) {
-    if (line.startsWith('subgraph') || line === 'end') {
-      continue;
+  // Add technology-based infrastructure nodes
+  if (facts.technologies.includes('MongoDB/Mongoose')) components.push('MongoDB');
+  if (facts.technologies.includes('Redis')) components.push('Redis');
+  if (facts.technologies.includes('BullMQ')) components.push('Job Queue');
+
+  // Build relationships from layer dependencies
+  for (const dep of facts.layerDependencies) {
+    const [src, tgt] = dep.split(' → ');
+    const srcLabel = layerToComponent[src] || src;
+    const tgtLabel = layerToComponent[tgt] || tgt;
+    if (components.includes(srcLabel) && components.includes(tgtLabel)) {
+      relationships.push([srcLabel, tgtLabel]);
     }
+  }
 
-    const match = line.match(connectionRegex);
-    if (!match) {
-      continue;
-    }
-
-    const sourceId = match[1] || match[2];
-    const sourceLabel = match[3] || match[4] || sourceId;
-    const edgeTypeRaw = match[5] || '-->';
-    const edgeLabel = match[6] ? match[6].trim() : '';
-    const targetId = match[7] || match[8];
-    const targetLabel = match[9] || match[10] || targetId;
-
-    if (!nodeMap.has(sourceId)) {
-      nodeMap.set(sourceId, {
-        id: sourceId,
-        label: sourceLabel,
-      });
-    }
-
-    if (!nodeMap.has(targetId)) {
-      nodeMap.set(targetId, {
-        id: targetId,
-        label: targetLabel,
-      });
-    }
-
-    edges.push({
-      id: `e-${sourceId}-${targetId}-${edges.length}`,
-      source: sourceId,
-      target: targetId,
-      label: edgeLabel || undefined,
-    });
+  // Add infra relationships
+  if (components.includes('Services')) {
+    if (components.includes('MongoDB')) relationships.push(['Services', 'MongoDB']);
+    if (components.includes('Redis')) relationships.push(['Services', 'Redis']);
+    if (components.includes('Job Queue')) relationships.push(['Services', 'Job Queue']);
   }
 
   return {
-    nodes: Array.from(nodeMap.values()),
-    edges,
-    direction,
+    pattern: presentLayers.length > 3 ? 'Layered Architecture' : 'Service-Oriented',
+    components,
+    relationships,
+    dataflow: facts.layerDependencies.join(', '),
   };
-};
-
-/**
- * Build system prompt for architecture diagram generation
- */
-const buildArchitectureSystemPrompt = (repoName, diagramType) => {
-  const typePrompt = ARCHITECTURE_PROMPTS[diagramType] || ARCHITECTURE_PROMPTS.component;
-
-  return `You are CodeMind AI, an expert code architecture analyst for the repository "${repoName}".
-
-Your task is to generate a structured graph object and a brief summary of the codebase architecture.
-
-${typePrompt}
-
-IMPORTANT: Respond in EXACTLY this format:
-
-\`\`\`json
-{
-  "nodes": [
-    { "id": "node1", "label": "Node 1" },
-    { "id": "node2", "label": "Node 2" }
-  ],
-  "edges": [
-    { "id": "edge1", "source": "node1", "target": "node2", "label": "imports" }
-  ],
-  "direction": "LR"
 }
-\`\`\`
-
-**Summary:** <2-3 sentence summary of what the graph shows>
-
-Do NOT include any other text or markdown outside this exact JSON block and the summary.`;
-};
 
 /**
- * Build context from retrieved chunks for architecture analysis
+ * Convert architecture JSON (components + relationships) into React Flow nodes/edges.
  */
-const buildArchitectureContext = (retrievedChunks, fileTree) => {
-  let contextText = '';
-  let totalChars = 0;
-  const maxChars = 18000; // More context for architecture analysis
+function buildGraphFromArchJson(archJson) {
+  const components = archJson.components || [];
+  const relationships = archJson.relationships || [];
 
-  for (const chunk of retrievedChunks.slice(0, 20)) {
-    const meta = chunk.metadata;
-    const header = `--- File: ${meta.path} | ${meta.chunkType}: ${meta.functionName || meta.className || meta.path.split('/').pop()} | Lines ${meta.startLine}-${meta.endLine} ---`;
-    const section = `${header}\n${meta.content}\n\n`;
+  // Assign node IDs
+  const idMap = {};
+  components.forEach((comp, i) => { idMap[comp] = String.fromCharCode(65 + i); }); // A, B, C ...
 
-    if (totalChars + section.length > maxChars) break;
-    contextText += section;
-    totalChars += section.length;
+  const nodes = components.map((comp, i) => ({
+    id: idMap[comp],
+    label: comp,
+  }));
+
+  const edges = [];
+  const edgeSeen = new Set();
+  for (const [from, to] of relationships) {
+    const srcId = idMap[from];
+    const tgtId = idMap[to];
+    if (!srcId || !tgtId) continue;
+    const key = `${srcId}-${tgtId}`;
+    if (edgeSeen.has(key)) continue;
+    edgeSeen.add(key);
+    edges.push({ id: `e-${key}`, source: srcId, target: tgtId });
   }
 
-  // Include file tree summary if available
-  let fileTreeSummary = '';
-  if (fileTree) {
-    fileTreeSummary = '\n--- File Tree Structure ---\n' + JSON.stringify(fileTree, null, 2).slice(0, 3000) + '\n\n';
-  }
-
-  return `Here is the repository code context:\n\n${fileTreeSummary}${contextText}`;
-};
-
-/**
- * Generate an architecture diagram using the LLM
- * @param {object[]} retrievedChunks - Pinecone query matches
- * @param {string} repoName - Repository name
- * @param {string} diagramType - 'component' | 'dependency' | 'api-routes'
- * @param {object} fileTree - File tree from Project model
- * @returns {{ mermaidCode: string, summary: string, tokensUsed: number }}
- */
-const generateArchitectureDiagram = async (retrievedChunks, repoName, diagramType, fileTree) => {
-  const provider = getPreferredProvider();
-
-  let response;
-  let fullAnswer = '';
-  let tokensUsed = 0;
-
-  try {
-    if (provider === 'openai') {
-      const client = getOpenAIClient();
-      const modelToUse = LLM_MODEL || 'gpt-4o-mini';
-      response = await client.responses.create({
-        model: modelToUse,
-        input: [
-          { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
-          { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
-        ],
-        temperature: 0.15,
-        max_output_tokens: 3000,
-      });
-      fullAnswer = normalizeOpenAIText(response);
-      tokensUsed = response.usage?.total_tokens || 0;
-    } else {
-      const groq = getGroqClient();
-      response = await groq.chat.completions.create({
-        model: LLM_MODEL,
-        messages: [
-          { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
-          { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
-        ],
-        temperature: 0.15,
-        max_tokens: 3000,
-      });
-      fullAnswer = response.choices[0].message.content;
-      tokensUsed = response.usage?.total_tokens || 0;
-    }
-  } catch (err) {
-    if (provider === 'openai') {
-      console.warn('OpenAI architecture generation failed:', err.message || err);
-      const groq = getGroqClient();
-      const fallbackCandidates = [];
-      if (process.env.LLM_FALLBACK_MODEL) fallbackCandidates.push(process.env.LLM_FALLBACK_MODEL);
-      ['gpt-4o', 'gpt-4'].forEach((m) => {
-        if (m && m !== LLM_MODEL) fallbackCandidates.push(m);
-      });
-
-      for (const candidate of fallbackCandidates) {
-        try {
-          const retryResponse = await groq.chat.completions.create({
-            model: candidate,
-            messages: [
-              { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
-              { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
-            ],
-            temperature: 0.15,
-            max_tokens: 3000,
-          });
-          fullAnswer = retryResponse.choices[0].message.content;
-          tokensUsed = retryResponse.usage?.total_tokens || 0;
-          break;
-        } catch (retryErr) {
-          console.warn('Fallback model failed:', candidate, retryErr && retryErr.message ? retryErr.message : retryErr);
-        }
-      }
-    } else {
-      const isModelNotFound = err && (err.status === 404 || (err.error && err.error.error && err.error.error.code === 'model_not_found') || (err.error && err.error.code === 'model_not_found'));
-      if (isModelNotFound) {
-        console.warn('LLM model not found:', LLM_MODEL, '— attempting fallback models');
-        const fallbackCandidates = [];
-        if (process.env.LLM_FALLBACK_MODEL) fallbackCandidates.push(process.env.LLM_FALLBACK_MODEL);
-        ['gpt-4o', 'gpt-4'].forEach((m) => {
-          if (m && m !== LLM_MODEL) fallbackCandidates.push(m);
-        });
-
-        for (const candidate of fallbackCandidates) {
-          try {
-            console.log('Trying fallback model:', candidate);
-            const retryResponse = await groq.chat.completions.create({
-              model: candidate,
-              messages: [
-                { role: 'system', content: buildArchitectureSystemPrompt(repoName, diagramType) },
-                { role: 'user', content: buildArchitectureContext(retrievedChunks, fileTree) },
-              ],
-              temperature: 0.15,
-              max_tokens: 3000,
-            });
-            fullAnswer = retryResponse.choices[0].message.content;
-            tokensUsed = retryResponse.usage?.total_tokens || 0;
-            console.log('Fallback model succeeded:', candidate);
-            break;
-          } catch (retryErr) {
-            console.warn('Fallback model failed:', candidate, retryErr && retryErr.message ? retryErr.message : retryErr);
-          }
-        }
-      } else {
-        throw err;
-      }
-    }
-  }
-
-  if (!fullAnswer) {
-    throw new Error('LLM call failed and no fallback model succeeded');
-  }
-
-  const summaryMatch = fullAnswer.match(/\*\*Summary:\*\*\s*(.*)/);
-  const summary = summaryMatch
-    ? summaryMatch[1].trim()
-    : 'Architecture diagram generated from repository analysis.';
-
-  const jsonMatch = fullAnswer.match(/```json\s*([\s\S]*?)```/);
-  let graph = null;
-  let jsonText = '';
-
-  if (jsonMatch) {
-    jsonText = jsonMatch[1].trim();
-  } else {
-    const firstBrace = fullAnswer.indexOf('{');
-    const lastBrace = fullAnswer.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      jsonText = fullAnswer.slice(firstBrace, lastBrace + 1);
-    }
-  }
-
-  if (jsonText) {
-    try {
-      graph = JSON.parse(jsonText);
-    } catch (err) {
-      console.warn('Failed to parse architecture graph JSON:', err.message || err);
-    }
-  }
-
-  if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
-    graph = {
-      nodes: [
-        { id: 'A', label: 'No code chunks found' },
-        { id: 'B', label: 'Try again or re-index the repository' },
-      ],
-      edges: [
-        { id: 'e-A-B', source: 'A', target: 'B' },
-      ],
-      direction: 'LR',
-    };
-  }
-
-  return { graph, summary, tokensUsed };
-};
+  return { nodes, edges, direction: 'LR' };
+}
 
 // Explicit exports
 module.exports = {

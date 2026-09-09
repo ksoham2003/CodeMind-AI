@@ -4,12 +4,15 @@ const OpenAI = require('openai');
 const crypto = require('crypto');
 
 // Determine embedding provider: explicit env `EMBEDDING_PROVIDER` or auto-detect
-// Options: 'openai' | 'gemini' | 'local'
+// Options: 'openai' | 'gemini' | 'local' | 'ollama'
 const EMBEDDING_PROVIDER = (process.env.EMBEDDING_PROVIDER || (process.env.OPENAI_API_KEY ? 'openai' : 'gemini')).toLowerCase();
 // Allow overriding the exact embedding model via env. For OpenAI prefer smaller default to reduce cost.
 const EMBEDDING_MODEL_OPENAI = process.env.EMBEDDING_MODEL || 'text-embedding-3-small';
 const EMBEDDING_MODEL_GEMINI = 'gemini-embedding-001';
-const EMBEDDING_MODEL = EMBEDDING_PROVIDER === 'openai' ? EMBEDDING_MODEL_OPENAI : EMBEDDING_MODEL_GEMINI;
+let EMBEDDING_MODEL = EMBEDDING_PROVIDER === 'openai' ? EMBEDDING_MODEL_OPENAI : EMBEDDING_MODEL_GEMINI;
+if (EMBEDDING_PROVIDER === 'ollama') EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'all-minilm';
+
+const OLLAMA_URL = (process.env.LOCAL_LLM_URL || 'http://host.docker.internal:11434').replace(/\/$/, '');
 
 // Set embedding dimension dynamically based on chosen model
 let EMBEDDING_DIMENSION = 3072;
@@ -17,10 +20,13 @@ if (EMBEDDING_PROVIDER === 'openai') {
   // text-embedding-3-small -> 1536, text-embedding-3-large -> 3072
   if (/small/i.test(EMBEDDING_MODEL)) EMBEDDING_DIMENSION = 1536;
   else EMBEDDING_DIMENSION = 3072;
+} else if (EMBEDDING_PROVIDER === 'ollama') {
+  if (EMBEDDING_MODEL === 'nomic-embed-text') EMBEDDING_DIMENSION = 768;
+  else EMBEDDING_DIMENSION = 384; // default for all-minilm
 } else {
   EMBEDDING_DIMENSION = 3072;
 }
-const BATCH_SIZE = 50;
+const BATCH_SIZE = Math.max(32, parseInt(process.env.EMBED_BATCH_SIZE || '128', 10));
 
 let openaiClient = null;
 const getOpenAIClient = () => {
@@ -63,7 +69,16 @@ const embedText = async (text) => {
   try { await redis.incr('metrics:embed:requests'); } catch (e) {}
 
   let values;
-  if (EMBEDDING_PROVIDER === 'local') {
+  if (EMBEDDING_PROVIDER === 'ollama') {
+    const resp = await fetchWithRetry(`${OLLAMA_URL}/api/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: EMBEDDING_MODEL, input: text.replace(/\n/g, ' ') }),
+    });
+    if (!resp.ok) throw new Error(`Ollama embedding error: ${resp.status}`);
+    const data = await resp.json();
+    values = data.embeddings[0];
+  } else if (EMBEDDING_PROVIDER === 'local') {
     // Call local embedding server with retry/backoff
     const localUrl = process.env.EMBEDDING_LOCAL_URL || 'http://embedding-server:8000';
     const resp = await fetchWithRetry(`${localUrl}/embed`, {
@@ -172,7 +187,26 @@ const embedChunks = async (chunks, onProgress = () => {}) => {
 
     // If local provider supports batch endpoint, call it once per batch
     let embeddings;
-    if (EMBEDDING_PROVIDER === 'local') {
+    if (EMBEDDING_PROVIDER === 'ollama') {
+      const texts = batch.map(([, item]) => item.text);
+      try {
+        try { await redis.incr('metrics:embed:batch_calls'); } catch (e) {}
+        const resp = await fetchWithRetry(`${OLLAMA_URL}/api/embed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts }),
+        });
+        if (!resp.ok) {
+          try { await redis.incr('metrics:embed:errors'); } catch (e) {}
+          throw new Error(`Ollama batch embedding error: ${resp.status}`);
+        }
+        const data = await resp.json();
+        embeddings = data.embeddings;
+      } catch (err) {
+        try { await redis.incr('metrics:embed:errors'); } catch (e) {}
+        throw err;
+      }
+    } else if (EMBEDDING_PROVIDER === 'local') {
       const localUrl = process.env.EMBEDDING_LOCAL_URL || 'http://embedding-server:8000';
       const texts = batch.map(([, item]) => item.text);
       try {

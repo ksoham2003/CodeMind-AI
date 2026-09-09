@@ -1,5 +1,4 @@
 node_modules/
-.env
 .DS_Store
 dist/
 build/
@@ -9,3 +8,5 @@ uploads/
 .vite/
 
 k8s/secret.yaml
+k8s/secret.prod.yaml
+config.bat

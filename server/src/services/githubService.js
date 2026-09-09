@@ -66,7 +66,8 @@ const readRepositoryFiles = (dirPath, extensions, rootPath = dirPath) => {
   const IGNORED_DIRS = new Set([
     'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
     '__pycache__', '.venv', 'vendor', 'target', '.idea', '.vscode',
-    'out', '.nuxt', '.cache', 'tmp', 'temp',
+    'out', '.nuxt', '.cache', 'tmp', 'temp', 'public', 'assets',
+    'tests', '__tests__', 'e2e', 'playwright-report', 'storybook-static',
   ]);
 
   const walk = (currentPath) => {

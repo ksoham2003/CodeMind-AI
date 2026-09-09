@@ -1,11 +1,11 @@
 const { v4: uuidv4 } = require('uuid');
 
-const MAX_CHUNK_CHARS = 6000; // ~1500 tokens — safe for embedding models
+const MAX_CHUNK_CHARS = parseInt(process.env.MAX_CHUNK_CHARS || '2500', 10);
+const MAX_REPO_CHUNKS = parseInt(process.env.MAX_REPO_CHUNKS || '2500', 10);
 
-// Chunking strategy: 'full' (default) indexes all eligible parsed nodes,
-// 'selective' only indexes high-value nodes (functions, methods, classes, exported symbols)
-const CHUNK_STRATEGY = (process.env.EMBED_CHUNK_STRATEGY || 'full').toLowerCase();
-const SELECTIVE_MIN_CHARS = parseInt(process.env.SELECTIVE_MIN_CHARS || '50', 10);
+// Default to selective chunking to keep embedding workloads fast while retaining the most useful code signals.
+const CHUNK_STRATEGY = (process.env.EMBED_CHUNK_STRATEGY || 'selective').toLowerCase();
+const SELECTIVE_MIN_CHARS = parseInt(process.env.SELECTIVE_MIN_CHARS || '180', 10);
 
 /**
  * Convert parsed AST nodes into indexable chunks with rich metadata
@@ -24,26 +24,31 @@ const buildChunks = (parsedNodes, repoId, repoName) => {
   const chunks = [];
 
   for (const node of parsedNodes) {
-    // Skip trivially small chunks (getters, 1-liners with no real content)
     const code = (node.code || '').trim();
+    const nodeType = node.type || 'function';
+    const isHighSignal = ['function', 'method', 'class', 'file'].includes(nodeType);
 
-    // If using selective strategy, only keep functions/methods/classes or
-    // explicitly exported/top-level modules. This reduces the number of
-    // embeddings dramatically while keeping high-signal code.
+    // Skip very small or noisy helper chunks early. This keeps large repos fast without losing useful code.
     if (CHUNK_STRATEGY === 'selective') {
-      const keepTypes = new Set(['function', 'method', 'class', 'file', 'module']);
+      const keepTypes = new Set(['function', 'method', 'class', 'file']);
       const isExported = Boolean(node.isExported || node.exported || node.isExport);
-      if (!keepTypes.has(node.type) && !isExported) continue;
+      if (!keepTypes.has(nodeType) && !isExported) continue;
       if (code.length < SELECTIVE_MIN_CHARS) continue;
+      if (nodeType === 'function' && /^(use[A-Z]|handle[A-Z]|on[A-Z]|render[A-Z])/.test(node.name || '')) {
+        if (code.length < 300) continue;
+      }
     } else {
       if (code.length < 30) continue;
     }
+
+    if (!isHighSignal && code.length < 400) continue;
 
     // If the code block is very large, split it into overlapping sub-chunks
     const subChunks = splitLargeChunk(code);
 
     for (let i = 0; i < subChunks.length; i++) {
       const subCode = subChunks[i];
+      if (subCode.trim().length < 80) continue;
 
       // Build a rich natural-language prefix so the embedding captures intent
       const textPrefix = buildTextPrefix(node, repoName);
@@ -57,19 +62,22 @@ const buildChunks = (parsedNodes, repoId, repoName) => {
           repoName,
           path: node.filePath || '',
           language: extToLanguage(node.extension || '.js'),
-          chunkType: node.type || 'function',
-          // Pinecone does not accept null — use empty string for optional fields
-          functionName: (node.type === 'function' || node.type === 'method') ? (node.name || '') : '',
-          className: node.className || (node.type === 'class' ? node.name : '') || '',
+          chunkType: nodeType,
+          functionName: (nodeType === 'function' || nodeType === 'method') ? (node.name || '') : '',
+          className: node.className || (nodeType === 'class' ? node.name : '') || '',
           startLine: node.startLine || 1,
           endLine: node.endLine || 1,
           subChunkIndex: i,
           totalSubChunks: subChunks.length,
-          // Store first 1500 chars of code for display in the frontend
           content: subCode.slice(0, 1500),
         },
       });
     }
+  }
+
+  if (chunks.length > MAX_REPO_CHUNKS) {
+    chunks.sort((a, b) => (b.text.length + (b.metadata?.content?.length || 0)) - (a.text.length + (a.metadata?.content?.length || 0)));
+    return chunks.slice(0, MAX_REPO_CHUNKS);
   }
 
   return chunks;
