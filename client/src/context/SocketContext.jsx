@@ -17,7 +17,8 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    // If VITE_API_URL is missing (production), use undefined to make socket.io default to window.location
+    const socketUrl = import.meta.env.VITE_API_URL || undefined;
     const socket = io(socketUrl, {
       transports: ['polling', 'websocket'],
       reconnectionDelay: 1000,

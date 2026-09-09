@@ -1,6 +1,6 @@
 # CodeMind AI — Kubernetes Deployment Guide
 
-This guide deploys **all CodeMind AI services** to Kubernetes, including the `qwen3-coder:30b` LLM served by Ollama.
+This guide deploys **all CodeMind AI services** to Kubernetes, including the `qwen2.5-coder:3b` LLM served by Ollama.
 
 ## Prerequisites
 
@@ -101,7 +101,7 @@ kubectl apply -f k8s/
 
 ## Step 5 — Wait for Ollama Model Pull
 
-On **first deploy**, the Ollama init container will download `qwen3-coder:30b` (~19GB). This can take **10–20 minutes** depending on internet speed.
+On **first deploy**, the Ollama init container will download `qwen2.5-coder:3b`. This is much smaller than the 30B model and should be much faster to pull.
 
 Watch the init container:
 
@@ -133,7 +133,7 @@ kubectl get pods -n codemind
 kubectl exec -n codemind deploy/codemind-ollama -- \
   curl -s http://localhost:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"say hi"}],"stream":false}'
+  -d '{"model":"qwen2.5-coder:3b","messages":[{"role":"user","content":"say hi"}],"stream":false}'
 
 # Tail server logs
 kubectl logs -n codemind deploy/codemind-server -f
@@ -157,7 +157,7 @@ codemind-server (Node.js :5000)
     ├── codemind-mongo (:27017)
     ├── codemind-redis (:6379)
     ├── codemind-embedding (:8000)  ← all-MiniLM-L6-v2
-    └── codemind-ollama (:11434)    ← qwen3-coder:30b
+    └── codemind-ollama (:11434)    ← qwen2.5-coder:3b
             │
             └── /v1/chat/completions (OpenAI-compatible)
 

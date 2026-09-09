@@ -1,143 +1,140 @@
 const Project = require('../models/Project');
-const { embedText } = require('../services/embeddingService');
-const { querySimilar } = require('../services/pineconeService');
-const { generateArchitectureDiagram } = require('../services/llmWrapper');
-const { jobsQueue } = require('../queues/queue');
+const Chunk = require('../models/Chunk');
+const { generateArchitectureDiagram } = require('../services/llmService');
 
 /**
- * POST /api/architecture/visualize
- * Body: { projectId, diagramType? }
- *
- * diagramType: 'component' | 'dependency' | 'api-routes' (default: 'component')
- *
- * Queries Pinecone broadly across the repo, then asks the LLM
- * to produce a Mermaid diagram summarising the codebase structure.
+ * GET /api/architecture/:projectId
+ * Retrieve or generate an architecture diagram for a project
  */
-const visualizeArchitecture = async (req, res) => {
-  const { projectId, diagramType = 'component' } = req.body;
-
-  if (!projectId) {
-    return res.status(400).json({ success: false, message: 'projectId is required' });
-  }
-
+async function getArchitecture(req, res, next) {
   try {
+    const { projectId } = req.params;
+    
     const project = await Project.findOne({ _id: projectId, owner: req.user._id });
     if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Project not found',
+      });
     }
 
     if (project.status !== 'ready') {
       return res.status(400).json({
         success: false,
-        message: `Repository is not ready. Current status: ${project.status}`,
+        message: `Repository is not ready for visualization. Current status: ${project.status}. Please wait for indexing to complete.`,
       });
     }
 
-    // Build a broad query to capture overall structure
-    const structureQueries = {
-      component: 'main application entry point, component hierarchy, module exports, imports, and routing structure',
-      dependency: 'import statements, require calls, module dependencies, and package usage across all files',
-      'api-routes': 'express routes, API endpoints, controllers, middleware, request handlers, and service layer',
-    };
+    // Fetch chunks from MongoDB (populated during indexing)
+    const chunks = await Chunk.find({ project: projectId }).limit(50).lean();
 
-    const queryText = structureQueries[diagramType] || structureQueries.component;
-    const queryVector = await embedText(queryText);
+    if (!chunks || chunks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No indexed code chunks found. Please wait for indexing to complete.',
+      });
+    }
 
-    // Fetch more chunks than usual to get a broad view
-    // Support optional filters/boosts to narrow or prioritize results for architecture generation
-    const clientFilters = req.body.filters || undefined;
-    const clientBoosts = req.body.boosts || undefined;
-    const matches = await querySimilar(queryVector, project.repoId, 20, { filters: clientFilters, boosts: clientBoosts });
+    // Convert MongoDB chunks to the format expected by generateArchitectureDiagram
+    const formattedChunks = chunks.map(c => {
+      const metadata = c.metadata || {};
+      return {
+        text: c.text || c.content || '',
+        metadata: {
+          path: c.path || metadata.path || '',
+          functionName: c.functionName || metadata.functionName || '',
+          className: c.className || metadata.className || '',
+          chunkType: c.chunkType || metadata.chunkType || 'code',
+          startLine: c.startLine || metadata.startLine || 0,
+          endLine: c.endLine || metadata.endLine || 0,
+          content: (c.text || c.content || '').slice(0, 1500),
+        }
+      };
+    });
 
-    if (matches.length === 0) {
+    const result = await generateArchitectureDiagram(formattedChunks, projectId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/architecture/visualize
+ * Generate a Mermaid diagram from the project code
+ */
+async function visualizeArchitecture(req, res, next) {
+  try {
+    const { projectId, diagramType = 'component' } = req.body;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        message: 'projectId is required',
+      });
+    }
+
+    const project = await Project.findOne({ _id: projectId, owner: req.user._id });
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Project not found',
+      });
+    }
+
+    if (project.status !== 'ready') {
+      return res.status(400).json({
+        success: false,
+        message: `Repository is not ready for visualization. Current status: ${project.status}. Please wait for indexing to complete.`,
+      });
+    }
+
+    // Fetch chunks from MongoDB (populated during indexing)
+    const chunks = await Chunk.find({ project: projectId }).limit(50).lean();
+
+    if (!chunks || chunks.length === 0) {
       return res.json({
         success: true,
         graph: {
           nodes: [
             { id: 'A', label: 'No code chunks found' },
-            { id: 'B', label: 'Try again or re-index the repository' },
+            { id: 'B', label: 'Please complete repository indexing' },
           ],
           edges: [
             { id: 'e-A-B', source: 'A', target: 'B' },
           ],
           direction: 'LR',
         },
-        summary: 'No indexed code chunks were found for this repository.',
+        summary: 'No indexed code found. Complete indexing to generate architecture diagram.',
+        message: 'Repository indexing is still in progress or no code was indexed.'
       });
     }
 
-    // If queueing is enabled, enqueue job and return job id
-    if (process.env.USE_QUEUE === 'true') {
-      const job = await jobsQueue.add('generate-architecture', {
-        retrievedChunks: matches,
-        repoName: project.name,
-        diagramType,
-        fileTree: project.fileTree,
-      });
-
-      return res.status(202).json({ success: true, jobId: job.id, message: 'Job queued' });
-    }
-
-    // Generate the architecture diagram via LLM (synchronous fallback)
-    const { graph, summary, tokensUsed } = await generateArchitectureDiagram(
-      matches,
-      project.name,
-      diagramType,
-      project.fileTree
-    );
-
-    // Persist the generated diagram on the Project so it can be reused until repo updates
-    try {
-      await Project.findByIdAndUpdate(projectId, {
-        $set: { [`diagrams.${diagramType}`]: { graph, summary, tokensUsed, generatedAt: new Date() } },
-      });
-    } catch (e) {
-      console.warn('Failed to persist diagram on project:', e?.message || e);
-    }
-
-    // Previously we created a Chat entry with an embedded diagram so it
-    // appeared in the chat history. That behaviour has been removed —
-    // architecture diagrams are persisted on the Project only and will
-    // not be injected into the chat history anymore.
-
-    return res.json({
-      success: true,
-      graph,
-      summary,
-      diagramType,
-      tokensUsed,
+    // Convert MongoDB chunks to the format expected by generateArchitectureDiagram
+    const formattedChunks = chunks.map(c => {
+      const metadata = c.metadata || {};
+      return {
+        text: c.text || c.content || '',
+        metadata: {
+          path: c.path || metadata.path || '',
+          functionName: c.functionName || metadata.functionName || '',
+          className: c.className || metadata.className || '',
+          chunkType: c.chunkType || metadata.chunkType || 'code',
+          startLine: c.startLine || metadata.startLine || 0,
+          endLine: c.endLine || metadata.endLine || 0,
+          content: (c.text || c.content || '').slice(0, 1500),
+        }
+      };
     });
-  } catch (err) {
-    // Log full error for debugging
-    console.error('❌ Architecture visualize error (full):', err);
-    console.error(err && err.stack ? err.stack : 'no stack');
 
-    // If it's a known quota error from provider, forward 429
-    if (err && (err.status === 429 || (err.error && err.error.code === 429))) {
-      return res.status(429).json({
-        success: false,
-        message: 'AI quota exceeded. Please try again later.',
-        details: err && err.message ? err.message : undefined,
-      });
-    }
-
-    // If Pinecone dimension mismatch, return a helpful 400 with remediation
-    if (err && err.code === 'DIMENSION_MISMATCH') {
-      return res.status(400).json({
-        success: false,
-        message: 'Embedding / index dimension mismatch detected.',
-        details: err.message,
-        suggestion: 'Either recreate your Pinecone index with the embedding dimension shown above, or switch the server embedding provider/model to match the index (set EMBEDDING_PROVIDER and EMBEDDING_MODEL).',
-      });
-    }
-
-    // Return the original error message as well for easier debugging in dev
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to generate architecture diagram. Please try again.',
-      error: err && (err.message || err.toString()) ? (err.message || err.toString()) : undefined,
-    });
+    const result = await generateArchitectureDiagram(formattedChunks, projectId, diagramType);
+    res.json(result);
+  } catch (error) {
+    next(error);
   }
-};
+}
 
-module.exports = { visualizeArchitecture };
+module.exports = {
+  getArchitecture,
+  visualizeArchitecture,
+};

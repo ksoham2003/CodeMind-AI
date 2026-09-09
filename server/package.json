@@ -1,12 +1,12 @@
 {
   "name": "codemind-server",
   "version": "1.0.0",
-  "description": "CodeMind AI backend — RAG-powered GitHub repository Q&A",
+  "description": "CodeMind AI backend \u2014 RAG-powered GitHub repository Q&A",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "dev": "node init && nodemon src/index.js",
+    "start": "node init && node src/index.js"
   },
   "dependencies": {
     "ioredis": "^5.3.2",

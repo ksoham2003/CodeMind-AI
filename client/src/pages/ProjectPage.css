@@ -157,6 +157,31 @@
   border-color: var(--c-border-mid);
 }
 
+.sidebar-visualize-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(135deg, #0066cc 0%, #0052a3 100%);
+  border: none;
+  border-radius: var(--r-lg);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.sidebar-visualize-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 102, 204, 0.3);
+}
+
+.sidebar-visualize-btn:active {
+  transform: translateY(0);
+}
+
 /* ── Main Chat ── */
 .project-main {
   flex: 1;

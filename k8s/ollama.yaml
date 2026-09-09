@@ -1,9 +1,8 @@
 # Ollama Deployment + Service + PVC (model weights)
 # ============================================================
 # HARDWARE NOTE:
-#   qwen3-coder:30b (Q4_K_M) requires ~19GB of storage and:
-#   - GPU mode: NVIDIA GPU with 22GB+ VRAM (recommended)
-#   - CPU mode: 24GB+ system RAM (slow, ~5-8 tok/s)
+#   qwen2.5-coder:3b is much smaller than the 30B model and is the default
+#   application model for this project. It requires much less storage and RAM.
 #
 # GPU MODE (recommended):
 #   1. Install NVIDIA device plugin:
@@ -23,7 +22,7 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: 25Gi  # qwen3-coder:30b is ~19GB; leave headroom for other models
+      storage: 25Gi  # keep this at or above the live volume size to avoid PVC validation failures
 
 ---
 apiVersion: apps/v1
@@ -59,9 +58,9 @@ spec:
                 echo "Waiting for Ollama to start..."
                 sleep 2
               done
-              echo "Ollama ready. Pulling qwen3-coder:30b..."
+              echo "Ollama ready. Pulling qwen2.5-coder:3b..."
 
-              ollama pull qwen3-coder:30b
+              ollama pull qwen2.5-coder:3b
               echo "Model pull complete."
               kill $OLLAMA_PID
           env:

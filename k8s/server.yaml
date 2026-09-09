@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: codemindai-server:latest  # Built from ./server
+          image: codemindai-server:v14  # Built from ./server
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5000
@@ -32,12 +32,14 @@ spec:
             # Override START_WORKER for the API server (worker pod handles jobs)
             - name: START_WORKER
               value: "false"
+            - name: NODE_OPTIONS
+              value: "--dns-result-order=ipv4first"
           resources:
             requests:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "250m"
             limits:
-              memory: "1Gi"
+              memory: "2Gi"
               cpu: "1000m"
           readinessProbe:
             httpGet:

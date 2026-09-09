@@ -48,10 +48,10 @@ const indexRoutes = require('./routes/index');
 const chatRoutes = require('./routes/chat');
 const projectRoutes = require('./routes/projects');
 const authRoutes = require('./routes/auth');
-const architectureRoutes = require('./routes/architecture');
 const jobsRoutes = require('./routes/jobs');
 const debugRoutes = require('./routes/debug');
 const embedRoutes = require('./routes/embed');
+const architectureRoutes = require('./routes/architecture');
 const jwt = require('jsonwebtoken');
 
 // Controllers that need Socket.io injected
@@ -61,13 +61,12 @@ const { setIo } = require('./controllers/indexController');
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = [
+const defaultOrigins = [
   process.env.CLIENT_URL,
-  'http://localhost',
-  'http://localhost:5173',
-  'http://127.0.0.1',
-  'http://127.0.0.1:5173',
-].filter(Boolean);
+];
+
+const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) : [];
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])].filter(Boolean);
 
 const io = new Server(server, {
   cors: {
@@ -142,10 +141,10 @@ app.use('/api/repository', repositoryRoutes);
 app.use('/api/index', indexRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/api/architecture', architectureRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/embed', embedRoutes);
+app.use('/api/architecture', architectureRoutes);
 
 // Serving frontend build assets in production
 if (process.env.NODE_ENV === 'production') {

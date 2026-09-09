@@ -6,7 +6,8 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "5000"
-  CLIENT_URL: "http://codemind-client"
+  CLIENT_URL: "http://localhost:8081"
+  ALLOWED_ORIGINS: "http://localhost:8081,http://localhost:3000,http://localhost:5000,http://localhost:8080"
 
   # MongoDB — uses the in-cluster StatefulSet service
   MONGODB_URI: "mongodb://codemind-mongo:27017/codemind"
@@ -14,18 +15,27 @@ data:
   # Redis — uses the in-cluster service
   REDIS_URL: "redis://codemind-redis:6379"
 
-  # Embedding — switched to cloud Gemini to avoid local python requirements
-  EMBEDDING_PROVIDER: "gemini"
+  # Embedding — switched to Ollama for local fast embeddings
+  EMBEDDING_PROVIDER: "ollama"
   EMBEDDING_LOCAL_URL: ""
 
   # LLM — Pointing to Ollama installed on the Windows Host machine
   LOCAL_LLM_ENABLED: "true"
-  LOCAL_LLM_URL: "http://host.docker.internal:11434"
-  LOCAL_LLM_MODEL: "qwen3-coder:30b"
+  LOCAL_LLM_URL: "http://codemind-ollama:11434"
+  LOCAL_LLM_MODEL: "qwen2.5-coder:3b"
+  LLM_MODEL: "qwen2.5-coder:3b"
+  LLM_CHAT_MODEL: "qwen2.5-coder:3b"
 
   # Worker
-  QUEUE_CONCURRENCY: "2"
+  QUEUE_CONCURRENCY: "4"
   START_WORKER: "false"
+
+  # Embedding pipeline tuning for faster indexing
+  EMBED_CHUNK_STRATEGY: "selective"
+  SELECTIVE_MIN_CHARS: "180"
+  MAX_CHUNK_CHARS: "2500"
+  MAX_REPO_CHUNKS: "2500"
+  EMBED_BATCH_SIZE: "128"
 
   # Embedding retry config
   EMBED_RETRY_ATTEMPTS: "5"

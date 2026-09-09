@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { GitBranch, ArrowLeft, Loader2, Maximize2, Minimize2, ExternalLink, Network, Sparkles } from 'lucide-react';
-import { projectService, chatService, architectureService } from '../services';
+import { GitBranch, ArrowLeft, Loader2, Maximize2, Minimize2, ExternalLink, Eye } from 'lucide-react';
+import { projectService, chatService } from '../services';
 import ChatMessage from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import SourcePanel from '../components/SourcePanel';
 import SuggestedQuestions from '../components/SuggestedQuestions';
 import StatusBadge from '../components/StatusBadge';
+import VisualizationModal from '../components/VisualizationModal';
 import './ProjectPage.css';
 
 export default function ProjectPage() {
@@ -19,8 +20,7 @@ export default function ProjectPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
-  const [visualizing, setVisualizing] = useState(false);
-  const [providerError, setProviderError] = useState(null);
+  const [visualizationOpen, setVisualizationOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -93,46 +93,6 @@ export default function ProjectPage() {
     }
   };
 
-  const handleVisualize = async () => {
-    if (visualizing || project?.status !== 'ready') return;
-    setVisualizing(true);
-
-    // Add a user-style message
-    const userMsg = {
-      role: 'user',
-      content: '🏗️ Visualize the architecture of this repository',
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const res = await architectureService.visualize(id, 'component');
-
-          const diagramContent = `Here's the architecture diagram for **${project.name}**:\n\n${res.summary}`;
-
-      // Add only the textual summary to the chat — the visual diagram
-      // is intentionally not embedded into chat messages.
-      const aiMsg = {
-        role: 'ai',
-        content: diagramContent,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      setSourcePanelOpen(false);
-      // clear any previous provider errors on success
-      setProviderError(null);
-    } catch (err) {
-      // Surface detailed provider errors in a banner and also append an AI message
-      setProviderError(err.message);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'ai', content: `❌ Failed to generate architecture diagram: ${err.message}` },
-      ]);
-    } finally {
-      setVisualizing(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="project-page-center">
@@ -157,22 +117,6 @@ export default function ProjectPage() {
 
   return (
     <div className="project-page">
-      {providerError && (
-        <div className="provider-error-banner">
-          <div className="provider-error-content">
-            <strong>AI Provider Error:</strong>
-            <span className="provider-error-msg">{providerError}</span>
-          </div>
-          <div className="provider-error-actions">
-            <button className="btn btn-ghost" onClick={() => { setProviderError(null); }}>
-              Dismiss
-            </button>
-            <button className="btn btn-primary" onClick={handleVisualize} disabled={visualizing}>
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
       {/* ── Sidebar (File Tree Placeholder) ── */}
       <aside className="project-sidebar glass-raised">
         <div className="sidebar-header">
@@ -209,31 +153,6 @@ export default function ProjectPage() {
               </div>
            </div>
 
-           {/* Architecture Visualization Actions */}
-           {project.status === 'ready' && (
-             <div className="sidebar-arch-actions">
-               <button
-                 className="sidebar-arch-btn"
-                 onClick={handleVisualize}
-                 disabled={visualizing}
-               >
-                 {visualizing ? (
-                   <Loader2 size={14} className="spin-icon" />
-                 ) : (
-                   <Sparkles size={14} />
-                 )}
-                   <span>{visualizing ? 'Generating…' : 'Visualize Architecture'}</span>
-                 </button>
-                 <button
-                   className="sidebar-arch-btn sidebar-arch-btn--secondary"
-                   onClick={() => navigate(`/project/${id}/architecture`)}
-                 >
-                   <Network size={14} />
-                   <span>Architecture Explorer</span>
-                 </button>
-               </div>
-             )}
-
            {project.githubUrl && (
              <a
                href={project.githubUrl}
@@ -246,6 +165,15 @@ export default function ProjectPage() {
                <ExternalLink size={12} style={{ marginLeft: 'auto' }} />
              </a>
            )}
+
+           <button
+             className="sidebar-visualize-btn"
+             onClick={() => setVisualizationOpen(true)}
+             title="Generate architecture visualization"
+           >
+             <Eye size={16} />
+             <span>Visualize Architecture</span>
+           </button>
         </div>
       </aside>
 
@@ -285,6 +213,12 @@ export default function ProjectPage() {
           </div>
         )}
       </aside>
+
+      <VisualizationModal 
+        projectId={id}
+        isOpen={visualizationOpen}
+        onClose={() => setVisualizationOpen(false)}
+      />
     </div>
   );
 }
